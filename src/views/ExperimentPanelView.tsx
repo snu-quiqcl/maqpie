@@ -177,6 +177,13 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
     return out;
   }
 
+  function parseCsvValues(s: string) {
+    return s
+      .split(",")
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+  }
+
   async function createOneRun(paramValuesOverride?: Record<string, any>) {
     if (!panel) return;
 
