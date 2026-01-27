@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Box,
   Button,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -12,6 +13,7 @@ import {
   ListItemIcon,
   ListItemText,
   MenuItem,
+  Popover,
   Paper,
   Select,
   Stack,
@@ -57,6 +59,11 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   const [children, setChildren] = useState<Record<string, FileItem[]>>({});
   const [selectedPath, setSelectedPath] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [previewAnchor, setPreviewAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [previewPath, setPreviewPath] = useState<string>("");
+  const [previewContent, setPreviewContent] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string>("");
   const [panelDialogOpen, setPanelDialogOpen] = useState(false);
   const [pendingScriptPath, setPendingScriptPath] = useState<string>("");
   const [panelName, setPanelName] = useState<string>("");
@@ -66,8 +73,16 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   const [classOptions, setClassOptions] = useState<string[]>([]);
   const [classLoading, setClassLoading] = useState(false);
 
+  const allowedExts = fileExplorerConfig.allowedExtensions ?? [];
   const dirs = useMemo(() => items.filter((x) => x.kind === "dir"), [items]);
-  const files = useMemo(() => items.filter((x) => x.kind === "file"), [items]);
+  const files = useMemo(() => {
+    const onlyScripts = type === "script" && allowedExts.length > 0;
+    if (!onlyScripts) return items.filter((x) => x.kind === "file");
+    return items.filter((x) => {
+      if (x.kind !== "file") return false;
+      return allowedExts.some((ext) => x.name.toLowerCase().endsWith(ext.toLowerCase()));
+    });
+  }, [items, type, allowedExts]);
 
   async function refresh(nextPath?: string) {
     setLoading(true);
@@ -76,14 +91,40 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
       const resp = await api.listFiles(type, rp);
       // backend returns 'path' as rel path (may be empty string for root)
       setPath(resp.path ?? (rp ?? ""));
-      setItems(resp.items ?? []);
-      setChildren((prev) => ({ ...prev, [resp.path ?? (rp ?? "")]: resp.items ?? [] }));
+      const list = resp.items ?? [];
+      setItems(list);
+      setChildren((prev) => ({ ...prev, [resp.path ?? (rp ?? "")]: list }));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast("Files error", msg);
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openPreview(anchor: { x: number; y: number }, filePath: string) {
+    setPreviewAnchor(anchor);
+    setPreviewPath(filePath);
+    setPreviewContent("");
+    setPreviewError("");
+    setPreviewLoading(true);
+    try {
+      const resp = await api.readFile(type, filePath);
+      setPreviewContent(resp.content ?? "");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setPreviewError(msg || "Preview failed");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  function closePreview() {
+    setPreviewAnchor(null);
+    setPreviewPath("");
+    setPreviewContent("");
+    setPreviewError("");
+    setPreviewLoading(false);
   }
 
   useEffect(() => {
@@ -203,6 +244,10 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
     const list = children[parent] ?? (parent === path ? items : []);
     return list.map((item) => {
       const isDir = item.kind === "dir";
+      if (!isDir && type === "script" && allowedExts.length > 0) {
+        const ok = allowedExts.some((ext) => item.name.toLowerCase().endsWith(ext.toLowerCase()));
+        if (!ok) return null;
+      }
       const name = item.name;
       const full = fullPath(parent, name);
       const isOpen = expanded.has(full);
@@ -211,7 +256,13 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           <ListItemButton
             dense
             selected={selectedPath === full}
+            sx={{ py: 0.25 }}
             onClick={() => setSelectedPath(full)}
+            onContextMenu={(e) => {
+              if (isDir) return;
+              e.preventDefault();
+              openPreview({ x: e.clientX, y: e.clientY }, full);
+            }}
             onDoubleClick={() => {
               if (isDir) {
                 toggleDir(parent, name);
@@ -222,7 +273,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
               }
             }}
           >
-            <ListItemIcon sx={{ minWidth: 28 }}>
+            <ListItemIcon sx={{ minWidth: 24 }}>
               {isDir ? (
                 <IconButton
                   size="small"
@@ -237,14 +288,12 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
                 <span style={{ width: 32 }} />
               )}
             </ListItemIcon>
-            <ListItemIcon sx={{ minWidth: 28 }}>
+            <ListItemIcon sx={{ minWidth: 24 }}>
               {isDir ? (isOpen ? <FolderOpenIcon fontSize="small" /> : <FolderIcon fontSize="small" />) : <InsertDriveFileIcon fontSize="small" />}
             </ListItemIcon>
             <ListItemText
               primary={name}
-              secondary={isDir ? undefined : `${item.size ?? "-"} B`}
               primaryTypographyProps={{ variant: "body2" }}
-              secondaryTypographyProps={{ variant: "caption" }}
             />
           </ListItemButton>
           {selectedPath === full && !isDir ? (
@@ -269,8 +318,8 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems="center">
+    <Paper variant="outlined" sx={{ p: 1 }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} alignItems="center">
         {fileExplorerConfig.showTypeToggle ? (
           <Select size="small" value={type} onChange={(e) => setType(e.target.value as FileType)}>
             <MenuItem value="script">script</MenuItem>
@@ -282,7 +331,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         </Button>
       </Stack>
 
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.75 }}>
         <Button size="small" variant="outlined" onClick={refreshRoot} disabled={path === ""}>
           Root
         </Button>
@@ -291,7 +340,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         </Typography>
       </Stack>
 
-      <List dense sx={{ mt: 1, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 1 }}>
+      <List dense sx={{ mt: 0.75, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 1 }}>
         {renderBranch(path || "", 0)}
       </List>
 
@@ -375,6 +424,49 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Popover
+        open={Boolean(previewAnchor)}
+        onClose={closePreview}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          previewAnchor ? { top: previewAnchor.y, left: previewAnchor.x } : undefined
+        }
+        PaperProps={{ sx: { width: 720, height: 420, p: 1.5, bgcolor: "var(--panel)" } }}
+        transformOrigin={{ vertical: "top", horizontal: "left" }}
+      >
+        <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ fontFamily: "var(--mono)" }}>
+            {previewPath || "Preview"}
+          </Typography>
+          <Button size="small" onClick={closePreview}>Close</Button>
+        </Stack>
+        {previewLoading ? (
+          <Stack alignItems="center" justifyContent="center" sx={{ height: "100%" }}>
+            <CircularProgress size={18} />
+          </Stack>
+        ) : previewError ? (
+          <Typography variant="caption" color="error">{previewError}</Typography>
+        ) : (
+          <Box
+            component="pre"
+            sx={{
+              m: 0,
+              p: 1,
+              height: "calc(100% - 36px)",
+              overflow: "auto",
+              bgcolor: "var(--panel2)",
+              border: "1px solid var(--border)",
+              borderRadius: 1,
+              fontFamily: "var(--mono)",
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {previewContent || "(empty)"}
+          </Box>
+        )}
+      </Popover>
     </Paper>
   );
 }

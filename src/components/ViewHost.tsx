@@ -16,7 +16,7 @@ export default function ViewHost({ tab, compact }: { tab: TabModel; compact?: bo
     case "experimentPanel":
       return <ExperimentPanelView panelId={tab.props.panelId} compact={compact} />;
     case "dataViewer":
-      return <DataViewerView rid={tab.props.rid} datasetName={tab.props.datasetName} />;
+      return <DataViewerView rid={tab.props.rid} datasetName={tab.props.datasetName} archiveId={tab.props.archiveId} />;
     case "archives":
       return <ArchivesView />;
     case "panelConfigs":

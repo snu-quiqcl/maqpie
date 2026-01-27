@@ -68,6 +68,19 @@ export default function RunsManagerView() {
     }
   }
 
+  async function deleteRun(rid: number) {
+    const ok = window.confirm(`Delete run ${rid}? This cannot be undone.`);
+    if (!ok) return;
+    try {
+      await api.deleteRun(rid);
+      showToast("Run deleted", `rid=${rid}`);
+      refresh();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast("Delete failed", msg);
+    }
+  }
+
   const countActive = useMemo(() => items.filter((x) => ["QUEUED", "RUNNING"].includes(x.status)).length, [items]);
 
   return (
@@ -179,6 +192,16 @@ export default function RunsManagerView() {
                     title={r.schedule_type === "RECURRING" ? "Stops the recurring schedule (backend must enforce)" : "Abort run"}
                   >
                     {r.schedule_type === "RECURRING" ? "Stop" : "Abort"}
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => deleteRun(r.rid)}
+                    disabled={!["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(r.status)}
+                    title="Delete run record"
+                  >
+                    Delete
                   </Button>
                 </Stack>
               </TableCell>

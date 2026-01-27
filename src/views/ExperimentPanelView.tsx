@@ -205,6 +205,17 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
     return resp;
   }
 
+  async function syncPanelParams(paramValues: Record<string, any>) {
+    if (!panel) return;
+    try {
+      const updated = await api.updatePanel(panel.panel_id ?? panelId, { param_values: paramValues });
+      setPanel(updated);
+    } catch (e: any) {
+      // Non-fatal: run/config can still proceed even if panel update fails.
+      showToast("Panel update failed", e.message || String(e));
+    }
+  }
+
   async function onLaunch() {
     if (!panel) return;
 
@@ -212,6 +223,7 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
       setLoading(true);
 
       const baseParamValues = buildParamValues(paramInputs) ?? {};
+      await syncPanelParams(baseParamValues);
       const resp: any = await createOneRun(baseParamValues);
 
       // If backend returns rid, open run viewer
@@ -227,6 +239,8 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
   async function onSaveConfig() {
     if (!panel) return;
     try {
+      const param_values = buildParamValues(paramInputs) ?? {};
+      await syncPanelParams(param_values);
       const title = configTitle.trim() || panel.name;
       const tags = parseCsvValues(configTags);
       const resp = await api.createPanelConfigFromPanel({
@@ -246,10 +260,20 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
   async function onUpdateConfig() {
     if (!panel?.config_id) return;
     try {
+      const param_values = buildParamValues(paramInputs) ?? {};
+      const queue_defaults = {
+        priority,
+        schedule_type: scheduleType,
+        scheduled_at: scheduleType === "TIMED" ? (scheduledAt || null) : null,
+        interval_min: scheduleType === "RECURRING" ? (intervalMin ? Number(intervalMin) : null) : null,
+      };
+      await syncPanelParams(param_values);
       const resp = await api.updatePanelConfigFromPanel(panel.config_id, {
         panel_id: panel.panel_id ?? panelId,
         mode: "overwrite",
         fields: ["param_values", "queue_defaults"],
+        param_values,
+        queue_defaults,
       });
       showToast("Config updated", resp.config_id);
     } catch (e: any) {
@@ -260,6 +284,8 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
   async function onSaveAsNewConfig() {
     if (!panel) return;
     try {
+      const param_values = buildParamValues(paramInputs) ?? {};
+      await syncPanelParams(param_values);
       const title = configTitle.trim() || `${panel.name} (copy)`;
       const tags = parseCsvValues(configTags);
       const resp = await api.createPanelConfigFromPanel({
@@ -325,10 +351,13 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
             {schemaEntries.map(([k, field]) => {
               const raw = paramInputs[k] ?? "";
               const unit = field.unit ? ` ${field.unit}` : "";
+              const typeLabel = field.type ? `[${field.type}]` : "";
               const numeric = field.type === "int" || field.type === "float";
               return (
                 <Stack key={k} direction="row" spacing={1} alignItems="center">
-                  <Typography variant="body2" sx={{ width: 120 }}>{k}</Typography>
+                  <Typography variant="body2" sx={{ width: 120 }}>
+                    {k} <Typography component="span" variant="caption" color="text.secondary">{typeLabel}</Typography>
+                  </Typography>
                   {field.type === "bool" ? (
                     <Checkbox
                       size="small"

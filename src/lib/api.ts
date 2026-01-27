@@ -223,6 +223,8 @@ export const api = {
     return request<{ items: unknown[]; next_cursor: string | null }>(`/panels/${qs}`);
   },
   getPanel: (panel_id: string) => request<PanelResp>(`/panels/${panel_id}/`),
+  updatePanel: (panel_id: string, body: Partial<PanelResp>) =>
+    request<PanelResp>(`/panels/${panel_id}/`, { method: "PATCH", body: JSON.stringify(body) }),
   deletePanel: (panel_id: string) => request<void>(`/panels/${panel_id}/`, { method: "DELETE" }),
   listPanelConfigs: (query?: Record<string, string>) => {
     const qs = query ? `?${new URLSearchParams(query).toString()}` : "";
@@ -230,8 +232,23 @@ export const api = {
   },
   createPanelConfigFromPanel: (body: { panel_id: string; title: string; tags?: string[] }) =>
     request<PanelConfigCreateResp>("/panel-configs/from-panel/", { method: "POST", body: JSON.stringify(body) }),
-  updatePanelConfigFromPanel: (config_id: string, body: { panel_id: string; mode?: "overwrite"; fields?: string[] }) =>
+  updatePanelConfigFromPanel: (
+    config_id: string,
+    body: {
+      panel_id: string;
+      mode?: "overwrite";
+      fields?: string[];
+      param_values?: Record<string, unknown>;
+      queue_defaults?: { priority?: number; schedule_type?: string; scheduled_at?: string | null; interval_min?: number | null };
+    }
+  ) =>
     request<PanelConfigUpdateResp>(`/panel-configs/${config_id}/apply-panel/`, { method: "POST", body: JSON.stringify(body) }),
+  renamePanelConfig: (config_id: string, title: string) =>
+    request<PanelConfigUpdateResp>(`/panel-configs/${config_id}/`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  deletePanelConfig: (config_id: string) =>
+    request<void>(`/panel-configs/${config_id}/`, { method: "DELETE" }),
+  openPanelFromConfig: (config_id: string) =>
+    request<PanelResp>("/panels/from-config/", { method: "POST", body: JSON.stringify({ config_id }) }),
 
   // Runs
   listRuns: async (query?: Record<string, string>): Promise<RunsListResp> => {
@@ -275,6 +292,7 @@ export const api = {
     return normalizeRun(resp);
   },
   abortRun: (rid: number) => request<{ rid: number; status: string }>(`/runs/${rid}/abort/`, { method: "POST", body: JSON.stringify({}) }),
+  deleteRun: (rid: number) => request<void>(`/runs/${rid}/`, { method: "DELETE" }),
 
   // Data
   listDatasets: async (rid: number) => {
@@ -324,6 +342,10 @@ export const api = {
     return request<ArchivesListResp>(`/archives/${qs}`);
   },
   getArchive: (archive_id: number) => request<ArchiveDetailResp>(`/archives/${archive_id}/`),
+  updateArchive: (archive_id: number, body: Record<string, unknown>) =>
+    request<ArchiveDetailResp>(`/archives/${archive_id}/`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteArchive: (archive_id: number) =>
+    request<void>(`/archives/${archive_id}/`, { method: "DELETE" }),
   getArchivedDatasetData: (archive_id: number, dataset_name: string, opts?: { format?: string; slice?: string }) => {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);

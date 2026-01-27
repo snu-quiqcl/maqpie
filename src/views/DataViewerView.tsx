@@ -3,11 +3,16 @@ import {
   Box,
   Button,
   Checkbox,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   MenuItem,
   Paper,
   Select,
   Stack,
+  TextField,
   ToggleButton,
   ToggleButtonGroup,
   Typography,
@@ -96,7 +101,7 @@ function getFieldValue(row: DataRow, field: string, index: number): number | nul
   return null;
 }
 
-export default function DataViewerView({ rid, datasetName }: { rid: number; datasetName?: string }) {
+export default function DataViewerView({ rid, datasetName, archiveId }: { rid: number; datasetName?: string; archiveId?: number }) {
   const showToast = useAppStore((s) => s.showToast);
 
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
@@ -111,12 +116,18 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
 
   const [streaming, setStreaming] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveTitle, setArchiveTitle] = useState("");
+  const [archiveTags, setArchiveTags] = useState("");
+  const [archiveNote, setArchiveNote] = useState("");
+  const [archiveDatasets, setArchiveDatasets] = useState<string[]>([]);
 
   // If you pass rid=0 (placeholder), show a helpful message.
   const ridValid = rid && rid > 0;
+  const archiveMode = Boolean(archiveId);
 
   useEffect(() => {
-    if (!ridValid) return;
+    if (!ridValid || archiveMode) return;
 
     let mounted = true;
     (async () => {
@@ -145,6 +156,29 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
   }, [rid]);
 
   useEffect(() => {
+    if (!archiveMode || !archiveId) return;
+    let mounted = true;
+    (async () => {
+      try {
+        setLoading(true);
+        const a = await api.getArchive(archiveId);
+        if (!mounted) return;
+        const items = (a.datasets ?? []).map((name) => ({ name })) as DatasetItem[];
+        setDatasets(items);
+        if (!selected && items.length > 0) setSelected(items[0].name);
+      } catch (e: any) {
+        showToast("Archive load failed", e.message || String(e));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archiveMode, archiveId]);
+
+  useEffect(() => {
     if (!ridValid) return;
     if (!selected) return;
 
@@ -153,8 +187,24 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
       try {
         setLoading(true);
 
-        const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
-        const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+        if (archiveMode && archiveId) {
+          const a = await api.getArchive(archiveId);
+          const d: any = await api.getArchivedDatasetData(archiveId, selected, { format: "json" });
+          if (!mounted) return;
+          setMeta({
+            rid: a.rid,
+            name: selected,
+            dtype: "unknown",
+            shape: [],
+          });
+          setData(d?.data ?? []);
+        } else {
+          const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
+          const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+          if (!mounted) return;
+          setMeta(m);
+          setData(d?.data ?? []);
+        }
 
         if (!mounted) return;
 
@@ -170,11 +220,11 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
     return () => {
       mounted = false;
     };
-  }, [rid, ridValid, selected, showToast]);
+  }, [rid, ridValid, selected, showToast, archiveMode, archiveId]);
 
   // Streaming WS
   useEffect(() => {
-    if (!ridValid) return;
+    if (!ridValid || archiveMode) return;
     if (!selected) return;
 
     if (!streaming) {
@@ -235,7 +285,7 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
       }
       wsRef.current = null;
     };
-  }, [rid, ridValid, selected, streaming, showToast]);
+  }, [rid, ridValid, selected, streaming, showToast, archiveMode]);
 
   const fieldOptions = useMemo(() => {
     const base: string[] = ["index"];
@@ -326,33 +376,48 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
     <Paper variant="outlined" sx={{ p: 1.5 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Run {rid}</Typography>
-          <Typography variant="caption" color="text.secondary">Dataset viewer</Typography>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
+          </Typography>
+          <Typography variant="caption" color="text.secondary">{archiveMode ? "Archived dataset" : "Dataset viewer"}</Typography>
         </Box>
         <Stack direction="row" spacing={1} alignItems="center">
-          <FormControlLabel
-            control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} />}
-            label={<Typography variant="caption">Streaming</Typography>}
-          />
-          <Button
-            size="small"
-            variant="outlined"
-            onClick={async () => {
-              if (!selected) return;
-              try {
-                setLoading(true);
-                const d: any = await api.getDatasetData(rid, selected, { format: "json" });
-                setData(d?.data ?? []);
-              } catch (e: any) {
-                showToast("Refresh failed", e.message || String(e));
-              } finally {
-                setLoading(false);
-              }
-            }}
-            disabled={!selected || loading}
-          >
-            Refresh snapshot
-          </Button>
+          {!archiveMode && (
+            <FormControlLabel
+              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} />}
+              label={<Typography variant="caption">Streaming</Typography>}
+            />
+          )}
+          {!archiveMode && (
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={async () => {
+                if (!selected) return;
+                try {
+                  setLoading(true);
+                  const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+                  setData(d?.data ?? []);
+                } catch (e: any) {
+                  showToast("Refresh failed", e.message || String(e));
+                } finally {
+                  setLoading(false);
+                }
+              }}
+              disabled={!selected || loading}
+            >
+              Refresh snapshot
+            </Button>
+          )}
+          {!archiveMode && (
+            <Button size="small" variant="outlined" onClick={() => {
+              setArchiveTitle(`Run ${rid} Archive`);
+              setArchiveDatasets(datasets.map((d) => d.name));
+              setArchiveOpen(true);
+            }}>
+              Archive
+            </Button>
+          )}
         </Stack>
       </Stack>
 
@@ -456,6 +521,84 @@ export default function DataViewerView({ rid, datasetName }: { rid: number; data
           </Typography>
         </Box>
       </Box>
+
+      <Dialog open={archiveOpen} onClose={() => setArchiveOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Create archive</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1.25, pt: 1 }}>
+          <TextField
+            label="Title"
+            size="small"
+            value={archiveTitle}
+            onChange={(e) => setArchiveTitle(e.target.value)}
+          />
+          <TextField
+            label="Tags (CSV)"
+            size="small"
+            value={archiveTags}
+            onChange={(e) => setArchiveTags(e.target.value)}
+          />
+          <TextField
+            label="Note"
+            size="small"
+            value={archiveNote}
+            onChange={(e) => setArchiveNote(e.target.value)}
+            multiline
+            minRows={2}
+          />
+          <Box>
+            <Typography variant="caption" color="text.secondary">Datasets</Typography>
+            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+              {datasets.map((d) => {
+                const checked = archiveDatasets.includes(d.name);
+                return (
+                  <FormControlLabel
+                    key={d.name}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={checked}
+                        onChange={() => {
+                          setArchiveDatasets((prev) =>
+                            checked ? prev.filter((x) => x !== d.name) : [...prev, d.name]
+                          );
+                        }}
+                      />
+                    }
+                    label={<Typography variant="caption">{d.name}</Typography>}
+                  />
+                );
+              })}
+            </Stack>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setArchiveOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              try {
+                const tags = archiveTags.split(",").map((t) => t.trim()).filter(Boolean);
+                const body = {
+                  rid,
+                  title: archiveTitle || `Run ${rid} Archive`,
+                  datasets: archiveDatasets,
+                  tags,
+                  note: archiveNote,
+                  snapshot_mode: "reference",
+                };
+                const resp = await api.createArchive(body);
+                showToast("Archive created", `archive_id=${resp.archive_id}`);
+                setArchiveOpen(false);
+              } catch (e: any) {
+                showToast("Archive failed", e.message || String(e));
+              }
+            }}
+            disabled={archiveDatasets.length === 0}
+          >
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 }

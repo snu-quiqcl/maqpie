@@ -14,9 +14,9 @@ const theme = createTheme({
   typography: {
     fontFamily:
       '"IBM Plex Sans", "Space Grotesk", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
-    fontSize: 12,
+    fontSize: 11,
   },
-  spacing: 6,
+  spacing: 4,
   components: {
     MuiButton: { defaultProps: { size: "small", variant: "outlined" } },
     MuiTextField: { defaultProps: { size: "small" } },

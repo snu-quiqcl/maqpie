@@ -157,7 +157,7 @@ button, input, select, textarea {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 4px 6px;
 }
 
 button {

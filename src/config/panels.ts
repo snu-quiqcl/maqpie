@@ -1,3 +1,3 @@
 export const panelOpenConfig = {
-  enableClassSelection: true,
+  enableClassSelection: false,
 };
