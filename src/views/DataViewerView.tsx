@@ -18,6 +18,7 @@ import {
   Typography,
 } from "@mui/material";
 import Plot from "react-plotly.js";
+import type { Data } from "plotly.js";
 import { api, wsUrl } from "../lib/api";
 import { useAppStore } from "../state/store";
 
@@ -206,10 +207,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           setData(d?.data ?? []);
         }
 
-        if (!mounted) return;
-
-        setMeta(m);
-        setData(d?.data ?? []);
       } catch (e: any) {
         showToast("Dataset load failed", e.message || String(e));
       } finally {
@@ -310,7 +307,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     if (!zField || !fieldOptions.includes(zField)) setZField(fieldOptions[2] ?? fieldOptions[1] ?? fieldOptions[0]);
   }, [fieldOptions, xField, yField, zField]);
 
-  const plotTrace = useMemo(() => {
+  const plotTrace = useMemo<Data[]>(() => {
     if (!data || data.length === 0) return [];
     const x: number[] = [];
     const y: number[] = [];
@@ -341,7 +338,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           mode: "lines+markers",
           marker: { size: 4, color: "#6cb6ff" },
           line: { width: 1.5, color: "#6cb6ff" },
-        },
+        } as Data,
       ];
     }
 
@@ -357,7 +354,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           colorscale: "Viridis",
           showscale: true,
         },
-      },
+      } as Data,
     ];
   }, [data, plotMode, xField, yField, zField]);
 
