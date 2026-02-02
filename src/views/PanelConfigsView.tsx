@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api } from "../lib/api";
 import type { PanelConfigListItem } from "../lib/types";
 import { useAppStore } from "../state/store";
+import { panelOpenConfig } from "../config/panels";
 
 export default function PanelConfigsView() {
   const showToast = useAppStore((s) => s.showToast);
@@ -18,6 +19,18 @@ export default function PanelConfigsView() {
   const [renameTarget, setRenameTarget] = useState<PanelConfigListItem | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [contextTarget, setContextTarget] = useState<PanelConfigListItem | null>(null);
+  const [contextAnchor, setContextAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [infoTarget, setInfoTarget] = useState<PanelConfigListItem | null>(null);
+  const compactTableSx = {
+    "& .MuiTableCell-root": { py: 0.55, px: 1, fontSize: 12, borderBottomColor: "var(--border)" },
+    "& .MuiTableHead-root .MuiTableCell-root": {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.3,
+      textTransform: "uppercase",
+      color: "text.secondary",
+    },
+  };
 
   function uid(prefix: string) {
     return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
@@ -37,8 +50,8 @@ export default function PanelConfigsView() {
           windowId: uid("win"),
           x: 140,
           y: 140,
-          w: 680,
-          h: 560,
+          w: 560,
+          h: 440,
           locked: false,
           tabs: [tab],
           activeTabId: tab.tabId,
@@ -107,10 +120,10 @@ export default function PanelConfigsView() {
   }, []);
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5, bgcolor: "background.paper" }}>
-      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mb: 1 }}>
+    <Paper variant="outlined" sx={{ p: 1, bgcolor: "background.paper" }}>
+      <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.75} sx={{ mb: 0.75 }}>
         <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Panel Configurations</Typography>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Panel Configurations</Typography>
           <Typography variant="caption" color="text.secondary">Saved configuration snapshots</Typography>
         </Box>
         <Button size="small" variant="outlined" onClick={refresh} disabled={loading}>
@@ -118,24 +131,27 @@ export default function PanelConfigsView() {
         </Button>
       </Stack>
 
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 1 }}>
+      <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} sx={{ mb: 0.75 }}>
         <TextField
           size="small"
           label="Tag"
           value={tag}
           onChange={(e) => setTag(e.target.value)}
+          sx={{ minWidth: 100 }}
         />
         <TextField
           size="small"
           label="Script path"
           value={scriptPath}
           onChange={(e) => setScriptPath(e.target.value)}
+          sx={{ minWidth: 140 }}
         />
         <TextField
           size="small"
           label="Class name"
           value={className}
           onChange={(e) => setClassName(e.target.value)}
+          sx={{ minWidth: 120 }}
         />
         <Button size="small" variant="contained" onClick={refresh} disabled={loading}>
           Apply
@@ -147,90 +163,139 @@ export default function PanelConfigsView() {
           <CircularProgress size={20} />
         </Box>
       ) : (
-        <Table size="small">
-          <TableHead>
-            <TableRow>
-              <TableCell>Title</TableCell>
-              <TableCell>Config ID</TableCell>
-              <TableCell>Script</TableCell>
-              <TableCell>Class</TableCell>
-              <TableCell>Tags</TableCell>
-              <TableCell>Updated</TableCell>
-              <TableCell>By</TableCell>
-              <TableCell>Open</TableCell>
-              <TableCell>Delete</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {items.map((c) => (
-              <TableRow
-                key={c.config_id}
-                hover
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setContextTarget(c);
-                }}
-              >
-                <TableCell>{c.title}</TableCell>
-                <TableCell sx={{ fontFamily: "var(--mono)" }}>{c.config_id}</TableCell>
-                <TableCell>{c.script_path}</TableCell>
-                <TableCell>{c.class_name}</TableCell>
-                <TableCell>
-                  <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
-                    {(c.tags ?? []).map((t) => (
-                      <Chip key={t} label={t} size="small" variant="outlined" />
-                    ))}
-                  </Stack>
-                </TableCell>
-                <TableCell>{c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}</TableCell>
-                <TableCell>{c.updated_by?.username ?? "-"}</TableCell>
-                <TableCell>
-                  <Button size="small" variant="contained" onClick={() => openPanelFromConfig(c.config_id)}>
-                    Open
-                  </Button>
-                </TableCell>
-                <TableCell>
-                  <Button size="small" variant="outlined" color="error" onClick={() => deleteConfig(c.config_id)}>
-                    Delete
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-            {items.length === 0 && (
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small" sx={{ ...compactTableSx, minWidth: 640 }}>
+            <TableHead>
               <TableRow>
-                <TableCell colSpan={9} sx={{ color: "text.secondary" }}>
-                  No configs found.
-                </TableCell>
+                <TableCell>Title</TableCell>
+                <TableCell>Script</TableCell>
+                {panelOpenConfig.enableClassSelection ? <TableCell>Class</TableCell> : null}
               </TableRow>
-            )}
-          </TableBody>
-        </Table>
+            </TableHead>
+            <TableBody>
+              {items.map((c) => (
+                <TableRow
+                  key={c.config_id}
+                  hover
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setContextTarget(c);
+                    setContextAnchor({ x: e.clientX, y: e.clientY });
+                  }}
+                >
+                  <TableCell sx={{ minWidth: 170 }}>
+                    <Typography variant="body2" sx={{ fontSize: 12.5, fontWeight: 700 }}>{c.title}</Typography>
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 270 }}>
+                    <Typography variant="caption" sx={{ fontFamily: "var(--mono)", fontSize: 11.5 }}>{c.script_path}</Typography>
+                  </TableCell>
+                  {panelOpenConfig.enableClassSelection ? (
+                    <TableCell sx={{ minWidth: 140 }}>{c.class_name || "-"}</TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+              {items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={panelOpenConfig.enableClassSelection ? 3 : 2} sx={{ color: "text.secondary" }}>
+                    No configs found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </Box>
       )}
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+        Right-click a config row for actions.
+      </Typography>
 
-      <Dialog open={Boolean(contextTarget)} onClose={() => setContextTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Config actions</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1, pt: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            {contextTarget ? `config_id: ${contextTarget.config_id}` : ""}
-          </Typography>
-          <Button variant="outlined" onClick={() => { if (contextTarget) openRename(contextTarget); setContextTarget(null); }}>
-            Rename
-          </Button>
+      <Menu
+        open={Boolean(contextTarget && contextAnchor)}
+        onClose={() => {
+          setContextTarget(null);
+          setContextAnchor(null);
+        }}
+        MenuListProps={{ dense: true }}
+        anchorReference="anchorPosition"
+        anchorPosition={contextAnchor ? { top: contextAnchor.y, left: contextAnchor.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            if (!contextTarget) return;
+            setInfoTarget(contextTarget);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Info
+        </MenuItem>
+        <MenuItem
+          onClick={async () => {
+            if (!contextTarget) return;
+            const configId = contextTarget.config_id;
+            setContextTarget(null);
+            setContextAnchor(null);
+            await openPanelFromConfig(configId);
+          }}
+        >
+          Open
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextTarget) openRename(contextTarget);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Rename
+        </MenuItem>
+        <MenuItem
+          sx={{ color: "error.main" }}
+          onClick={async () => {
+            if (!contextTarget) return;
+            const configId = contextTarget.config_id;
+            setContextTarget(null);
+            setContextAnchor(null);
+            await deleteConfig(configId);
+          }}
+        >
+          Delete
+        </MenuItem>
+      </Menu>
+
+      <Dialog open={Boolean(infoTarget)} onClose={() => setInfoTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Config info</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 0.5, pt: 1.25 }}>
+          <Typography variant="caption">Title: {infoTarget?.title ?? "-"}</Typography>
+          <Typography variant="caption" sx={{ fontFamily: "var(--mono)" }}>Config ID: {infoTarget?.config_id ?? "-"}</Typography>
+          <Typography variant="caption" sx={{ fontFamily: "var(--mono)" }}>Script: {infoTarget?.script_path ?? "-"}</Typography>
+          {panelOpenConfig.enableClassSelection ? (
+            <Typography variant="caption">Class: {infoTarget?.class_name || "-"}</Typography>
+          ) : null}
+          <Typography variant="caption">Tags: {(infoTarget?.tags ?? []).join(", ") || "-"}</Typography>
+          <Typography variant="caption">Updated: {infoTarget?.updated_at ? new Date(infoTarget.updated_at).toLocaleString() : "-"}</Typography>
+          <Typography variant="caption">By: {infoTarget?.updated_by?.username ?? "-"}</Typography>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setContextTarget(null)}>Close</Button>
+          <Button onClick={() => setInfoTarget(null)}>Close</Button>
         </DialogActions>
       </Dialog>
 
       <Dialog open={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Rename config</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1, pt: 1 }}>
-          <TextField
-            size="small"
-            label="Title"
-            value={renameTitle}
-            onChange={(e) => setRenameTitle(e.target.value)}
-          />
+        <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Rename config</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1, pt: 1.5 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Configuration title
+            </Typography>
+            <TextField
+              size="small"
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              placeholder="Enter a new title"
+              fullWidth
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRenameTarget(null)}>Cancel</Button>

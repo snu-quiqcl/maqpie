@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Button, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography, Checkbox, FormControlLabel } from "@mui/material";
+import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api } from "../lib/api";
 import type { RunListItem, RunStatus } from "../lib/types";
 import { useAppStore } from "../state/store";
+import { panelOpenConfig } from "../config/panels";
 
 function statusColor(s: RunStatus): "success" | "warning" | "error" | "info" {
   if (s === "RUNNING") return "info";
@@ -21,13 +22,25 @@ export default function RunsManagerView() {
   const ALL_STATUSES: RunStatus[] = ["QUEUED", "RUNNING", "COMPLETED"];
   const [selectedStatuses, setSelectedStatuses] = useState<RunStatus[]>(["QUEUED", "RUNNING", "COMPLETED"]);
   const [loading, setLoading] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
+  const [contextTarget, setContextTarget] = useState<RunListItem | null>(null);
+  const [contextAnchor, setContextAnchor] = useState<{ x: number; y: number } | null>(null);
+  const [infoTarget, setInfoTarget] = useState<RunListItem | null>(null);
 
   async function refresh() {
     setLoading(true);
     try {
       const status = selectedStatuses.length ? selectedStatuses.join(",") : "";
-      const resp = await api.listRuns(status ? {status, limit: "50"} : {limit: "50"});
-      setItems(resp.items ?? []);
+      const query: Record<string, string> = { limit: "50" };
+      if (status) query.status = status;
+      if (tagQuery.trim()) query.tag = tagQuery.trim();
+      const resp = await api.listRuns(query);
+      let next = resp.items ?? [];
+      if (tagQuery.trim()) {
+        const q = tagQuery.trim().toLowerCase();
+        next = next.filter((r) => (r.tags ?? []).some((t) => t.toLowerCase().includes(q)));
+      }
+      setItems(next);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       showToast("Runs error", msg);
@@ -41,7 +54,7 @@ export default function RunsManagerView() {
     const t = setInterval(refresh, 2000);
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStatuses]);
+  }, [selectedStatuses, tagQuery]);
 
   function openData(rid: number) {
     // Open a chooser tab: you pick dataset in the DataViewer itself
@@ -58,8 +71,8 @@ export default function RunsManagerView() {
         windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
         x: 160,
         y: 120,
-        w: 880,
-        h: 620,
+        w: 700,
+        h: 500,
         locked: false,
         tabs: [tab],
         activeTabId: tab.tabId,
@@ -81,23 +94,45 @@ export default function RunsManagerView() {
     }
   }
 
+  async function abortRun(r: RunListItem) {
+    try {
+      await api.abortRun(r.rid);
+      showToast("Abort requested", `rid=${r.rid}`);
+      refresh();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast("Abort failed", msg);
+    }
+  }
+
   const countActive = useMemo(() => items.filter((x) => ["QUEUED", "RUNNING"].includes(x.status)).length, [items]);
+  const compactTableSx = {
+    mt: 0.75,
+    "& .MuiTableCell-root": { py: 0.45, px: 0.8, fontSize: 12, borderBottomColor: "var(--border)" },
+    "& .MuiTableHead-root .MuiTableCell-root": {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.3,
+      textTransform: "uppercase",
+      color: "text.secondary",
+    },
+  };
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
-      <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between">
+    <Paper variant="outlined" sx={{ p: 1 }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} justifyContent="space-between">
         <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Current Runs</Typography>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Current Runs</Typography>
           <Typography variant="caption" color="text.secondary">{countActive} active</Typography>
         </Box>
         <Button size="small" variant="outlined" disabled={loading} onClick={refresh}>Refresh</Button>
       </Stack>
 
-      <Box sx={{ mt: 1 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+      <Box sx={{ mt: 0.75 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.25, display: "block" }}>
           Filter status
         </Typography>
-        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
           {ALL_STATUSES.map((st) => {
             const checked = selectedStatuses.includes(st);
             return (
@@ -125,97 +160,152 @@ export default function RunsManagerView() {
             All
           </Button>
         </Stack>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} alignItems={{ xs: "stretch", sm: "center" }} sx={{ mt: 0.5 }}>
+          <Typography variant="caption" color="text.secondary">Tag search</Typography>
+          <TextField
+            size="small"
+            value={tagQuery}
+            onChange={(e) => setTagQuery(e.target.value)}
+            placeholder="calib"
+            sx={{ minWidth: 130 }}
+          />
+        </Stack>
       </Box>
 
-      <Table size="small" sx={{ mt: 1 }}>
+      <Table size="small" sx={compactTableSx}>
         <TableHead>
           <TableRow>
             <TableCell>Status</TableCell>
-            <TableCell>rid</TableCell>
-            <TableCell>Name</TableCell>
-            <TableCell>Schedule</TableCell>
-            <TableCell>Tags</TableCell>
-            <TableCell>Start</TableCell>
-            <TableCell>Actions</TableCell>
+            <TableCell>Experiment</TableCell>
+            <TableCell>Script</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {items.map((r) => (
-            <TableRow key={r.rid} hover>
+            <TableRow
+              key={r.rid}
+              hover
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextTarget(r);
+                setContextAnchor({ x: e.clientX, y: e.clientY });
+              }}
+            >
               <TableCell>
-                <Chip size="small" label={r.status} color={statusColor(r.status)} variant="outlined" />
+                <Chip
+                  size="small"
+                  label={r.status}
+                  color={statusColor(r.status)}
+                  variant="outlined"
+                  sx={{ height: 20, "& .MuiChip-label": { px: 0.7, fontSize: 11 } }}
+                />
               </TableCell>
-              <TableCell sx={{ fontFamily: "var(--mono)" }}>{r.rid}</TableCell>
               <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{r.name}</Typography>
-                <Typography variant="caption" sx={{ fontFamily: "var(--mono)" }}>{r.script_path}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{r.name}</Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="caption">{r.schedule_type}</Typography>
-                {r.schedule_type === "TIMED" && r.scheduled_at ? (
-                  <Typography variant="caption" display="block">
-                    {new Date(r.scheduled_at).toLocaleString()}
-                  </Typography>
+                <Typography variant="caption" sx={{ fontFamily: "var(--mono)", fontSize: 11 }}>{r.script_path}</Typography>
+                {panelOpenConfig.enableClassSelection && r.class_name ? (
+                  <Typography variant="caption" color="text.secondary" display="block">{r.class_name}</Typography>
                 ) : null}
-                {r.schedule_type === "RECURRING" && r.interval_min ? (
-                  <Typography variant="caption" display="block">
-                    every {r.interval_min} min
-                  </Typography>
-                ) : null}
-              </TableCell>
-              <TableCell>
-                <Typography variant="caption">{(r.tags ?? []).join(", ")}</Typography>
-              </TableCell>
-              <TableCell>
-                <Typography variant="caption">{r.started_at ? new Date(r.started_at).toLocaleTimeString() : "-"}</Typography>
-              </TableCell>
-              <TableCell>
-                <Stack direction="row" spacing={1}>
-                  <Button size="small" variant="outlined" onClick={() => openData(r.rid)}>
-                    Data
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    onClick={async () => {
-                      try {
-                        await api.abortRun(r.rid);
-                        showToast("Abort requested", `rid=${r.rid}`);
-                        refresh();
-                      } catch (e: unknown) {
-                        const msg = e instanceof Error ? e.message : String(e);
-                        showToast("Abort failed", msg);
-                      }
-                    }}
-                    disabled={["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(r.status)}
-                    title={r.schedule_type === "RECURRING" ? "Stops the recurring schedule (backend must enforce)" : "Abort run"}
-                  >
-                    {r.schedule_type === "RECURRING" ? "Stop" : "Abort"}
-                  </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="error"
-                    onClick={() => deleteRun(r.rid)}
-                    disabled={!["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(r.status)}
-                    title="Delete run record"
-                  >
-                    Delete
-                  </Button>
-                </Stack>
               </TableCell>
             </TableRow>
           ))}
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={7} sx={{ color: "text.secondary" }}>
+              <TableCell colSpan={3} sx={{ color: "text.secondary" }}>
                 No runs.
               </TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+        Right-click a run row for actions.
+      </Typography>
+
+      <Menu
+        open={Boolean(contextTarget && contextAnchor)}
+        onClose={() => {
+          setContextTarget(null);
+          setContextAnchor(null);
+        }}
+        MenuListProps={{ dense: true }}
+        anchorReference="anchorPosition"
+        anchorPosition={contextAnchor ? { top: contextAnchor.y, left: contextAnchor.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            if (!contextTarget) return;
+            setInfoTarget(contextTarget);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Info
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (!contextTarget) return;
+            openData(contextTarget.rid);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Open data
+        </MenuItem>
+        <MenuItem
+          disabled={!contextTarget || ["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(contextTarget.status)}
+          onClick={async () => {
+            if (!contextTarget) return;
+            const target = contextTarget;
+            setContextTarget(null);
+            setContextAnchor(null);
+            await abortRun(target);
+          }}
+        >
+          {contextTarget?.schedule_type === "RECURRING" ? "Stop schedule" : "Abort run"}
+        </MenuItem>
+        <MenuItem
+          sx={{ color: "error.main" }}
+          disabled={!contextTarget || !["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(contextTarget.status)}
+          onClick={async () => {
+            if (!contextTarget) return;
+            const rid = contextTarget.rid;
+            setContextTarget(null);
+            setContextAnchor(null);
+            await deleteRun(rid);
+          }}
+        >
+          Delete run
+        </MenuItem>
+      </Menu>
+
+      <Dialog open={Boolean(infoTarget)} onClose={() => setInfoTarget(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Run info</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 0.5, pt: 1.25 }}>
+          <Typography variant="caption">Name: {infoTarget?.name ?? "-"}</Typography>
+          <Typography variant="caption">rid: {infoTarget?.rid ?? "-"}</Typography>
+          <Typography variant="caption" sx={{ fontFamily: "var(--mono)" }}>Script: {infoTarget?.script_path ?? "-"}</Typography>
+          {panelOpenConfig.enableClassSelection && infoTarget?.class_name ? (
+            <Typography variant="caption">Class: {infoTarget.class_name}</Typography>
+          ) : null}
+          <Typography variant="caption">Status: {infoTarget?.status ?? "-"}</Typography>
+          <Typography variant="caption">Schedule: {infoTarget?.schedule_type ?? "-"}</Typography>
+          {infoTarget?.schedule_type === "TIMED" && infoTarget?.scheduled_at ? (
+            <Typography variant="caption">Scheduled at: {new Date(infoTarget.scheduled_at).toLocaleString()}</Typography>
+          ) : null}
+          {infoTarget?.schedule_type === "RECURRING" && infoTarget?.interval_min ? (
+            <Typography variant="caption">Interval: every {infoTarget.interval_min} min</Typography>
+          ) : null}
+          <Typography variant="caption">Tags: {(infoTarget?.tags ?? []).join(", ") || "-"}</Typography>
+          <Typography variant="caption">Started: {infoTarget?.started_at ? new Date(infoTarget.started_at).toLocaleString() : "-"}</Typography>
+          <Typography variant="caption">Created: {infoTarget?.created_at ? new Date(infoTarget.created_at).toLocaleString() : "-"}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInfoTarget(null)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
         This view polls every 2s. Add WS fan-out later if you implement a consolidated stream server-side.

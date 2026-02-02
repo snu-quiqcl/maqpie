@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api } from "../lib/api";
 import type { ArchiveItem } from "../lib/types";
 import { useAppStore } from "../state/store";
@@ -13,6 +13,18 @@ export default function ArchivesView() {
   const [renameTarget, setRenameTarget] = useState<ArchiveItem | null>(null);
   const [renameTitle, setRenameTitle] = useState("");
   const [contextTarget, setContextTarget] = useState<ArchiveItem | null>(null);
+  const [contextAnchor, setContextAnchor] = useState<{ x: number; y: number } | null>(null);
+  const compactTableSx = {
+    mt: 0.75,
+    "& .MuiTableCell-root": { py: 0.45, px: 0.8, fontSize: 12, borderBottomColor: "var(--border)" },
+    "& .MuiTableHead-root .MuiTableCell-root": {
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: 0.3,
+      textTransform: "uppercase",
+      color: "text.secondary",
+    },
+  };
 
   async function refresh() {
     setLoading(true);
@@ -45,8 +57,8 @@ export default function ArchivesView() {
       windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
       x: 80,
       y: 80,
-      w: 880,
-      h: 620,
+      w: 700,
+      h: 500,
       locked: false,
       tabs: [tab],
       activeTabId: tab.tabId,
@@ -86,18 +98,18 @@ export default function ArchivesView() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
-      <Stack direction="row" alignItems="center" spacing={1} justifyContent="space-between">
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Archives</Typography>
+    <Paper variant="outlined" sx={{ p: 1 }}>
+      <Stack direction="row" alignItems="center" spacing={0.75} justifyContent="space-between">
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Archives</Typography>
         <Button size="small" variant="outlined" disabled={loading} onClick={refresh}>Refresh</Button>
       </Stack>
 
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 1 }}>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.75 }}>
         <Typography variant="caption" color="text.secondary">Tag filter</Typography>
-        <TextField size="small" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="paper" />
+        <TextField size="small" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="paper" sx={{ minWidth: 120 }} />
       </Stack>
 
-      <Table size="small" sx={{ mt: 1 }}>
+      <Table size="small" sx={compactTableSx}>
         <TableHead>
           <TableRow>
             <TableCell>archive_id</TableCell>
@@ -106,8 +118,6 @@ export default function ArchivesView() {
             <TableCell>datasets</TableCell>
             <TableCell>tags</TableCell>
             <TableCell>created</TableCell>
-            <TableCell>open</TableCell>
-            <TableCell>delete</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -118,12 +128,13 @@ export default function ArchivesView() {
               onContextMenu={(e) => {
                 e.preventDefault();
                 setContextTarget(a);
+                setContextAnchor({ x: e.clientX, y: e.clientY });
               }}
             >
               <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.archive_id}</TableCell>
               <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{a.title}</Typography>
-                {a.note && <Typography variant="caption" color="text.secondary">{a.note}</Typography>}
+                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{a.title}</Typography>
+                {a.note && <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{a.note}</Typography>}
               </TableCell>
               <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.rid}</TableCell>
               <TableCell>
@@ -135,52 +146,79 @@ export default function ArchivesView() {
               <TableCell>
                 <Typography variant="caption">{new Date(a.created_at).toLocaleString()}</Typography>
               </TableCell>
-              <TableCell>
-                <Button size="small" variant="outlined" onClick={() => openArchiveData(a)}>
-                  Open
-                </Button>
-              </TableCell>
-              <TableCell>
-                <Button size="small" variant="outlined" color="error" onClick={() => deleteArchive(a)}>
-                  Delete
-                </Button>
-              </TableCell>
             </TableRow>
           ))}
           {items.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8} sx={{ color: "text.secondary" }}>
+              <TableCell colSpan={6} sx={{ color: "text.secondary" }}>
                 No archives.
               </TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+        Right-click an archive row for actions.
+      </Typography>
 
-      <Dialog open={Boolean(contextTarget)} onClose={() => setContextTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Archive actions</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1, pt: 1 }}>
-          <Typography variant="caption" color="text.secondary">
-            {contextTarget ? `archive_id: ${contextTarget.archive_id}` : ""}
-          </Typography>
-          <Button variant="outlined" onClick={() => { if (contextTarget) openRename(contextTarget); setContextTarget(null); }}>
-            Rename
-          </Button>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setContextTarget(null)}>Close</Button>
-        </DialogActions>
-      </Dialog>
+      <Menu
+        open={Boolean(contextTarget && contextAnchor)}
+        onClose={() => {
+          setContextTarget(null);
+          setContextAnchor(null);
+        }}
+        MenuListProps={{ dense: true }}
+        anchorReference="anchorPosition"
+        anchorPosition={contextAnchor ? { top: contextAnchor.y, left: contextAnchor.x } : undefined}
+      >
+        <MenuItem
+          onClick={() => {
+            if (!contextTarget) return;
+            openArchiveData(contextTarget);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Open
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            if (contextTarget) openRename(contextTarget);
+            setContextTarget(null);
+            setContextAnchor(null);
+          }}
+        >
+          Rename
+        </MenuItem>
+        <MenuItem
+          sx={{ color: "error.main" }}
+          onClick={async () => {
+            if (!contextTarget) return;
+            const target = contextTarget;
+            setContextTarget(null);
+            setContextAnchor(null);
+            await deleteArchive(target);
+          }}
+        >
+          Delete
+        </MenuItem>
+      </Menu>
 
       <Dialog open={Boolean(renameTarget)} onClose={() => setRenameTarget(null)} maxWidth="xs" fullWidth>
-        <DialogTitle>Rename archive</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1, pt: 1 }}>
-          <TextField
-            size="small"
-            label="Title"
-            value={renameTitle}
-            onChange={(e) => setRenameTitle(e.target.value)}
-          />
+        <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Rename archive</DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1, pt: 1.5 }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Archive title
+            </Typography>
+            <TextField
+              size="small"
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              placeholder="Enter a new title"
+              fullWidth
+            />
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setRenameTarget(null)}>Cancel</Button>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -74,15 +74,6 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   const [classLoading, setClassLoading] = useState(false);
 
   const allowedExts = fileExplorerConfig.allowedExtensions ?? [];
-  const dirs = useMemo(() => items.filter((x) => x.kind === "dir"), [items]);
-  const files = useMemo(() => {
-    const onlyScripts = type === "script" && allowedExts.length > 0;
-    if (!onlyScripts) return items.filter((x) => x.kind === "file");
-    return items.filter((x) => {
-      if (x.kind !== "file") return false;
-      return allowedExts.some((ext) => x.name.toLowerCase().endsWith(ext.toLowerCase()));
-    });
-  }, [items, type, allowedExts]);
 
   async function refresh(nextPath?: string) {
     setLoading(true);
@@ -198,8 +189,8 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           windowId: uid("win"),
           x: 120,
           y: 120,
-          w: 680,
-          h: 560,
+          w: 560,
+          h: 440,
           locked: false,
           tabs: [tab],
           activeTabId: tab.tabId,
@@ -256,7 +247,17 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           <ListItemButton
             dense
             selected={selectedPath === full}
-            sx={{ py: 0.25 }}
+            sx={{
+              py: 0.25,
+              px: 0.5,
+              minHeight: 24,
+              borderRadius: 1,
+              "&.Mui-selected": {
+                backgroundColor: "color-mix(in srgb, var(--accent) 20%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--accent) 50%, transparent)",
+              },
+              "&:hover": { backgroundColor: "rgba(255,255,255,0.05)" },
+            }}
             onClick={() => setSelectedPath(full)}
             onContextMenu={(e) => {
               if (isDir) return;
@@ -273,10 +274,11 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
               }
             }}
           >
-            <ListItemIcon sx={{ minWidth: 24 }}>
+            <ListItemIcon sx={{ minWidth: 20, color: "text.secondary" }}>
               {isDir ? (
                 <IconButton
                   size="small"
+                  sx={{ p: 0.2 }}
                   onClick={async (e) => {
                     e.stopPropagation();
                     await toggleDir(parent, name);
@@ -285,32 +287,17 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
                   {isOpen ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
                 </IconButton>
               ) : (
-                <span style={{ width: 32 }} />
+                <span style={{ width: 20 }} />
               )}
             </ListItemIcon>
-            <ListItemIcon sx={{ minWidth: 24 }}>
+            <ListItemIcon sx={{ minWidth: 20, color: isDir ? "#6aa6ff" : "text.secondary" }}>
               {isDir ? (isOpen ? <FolderOpenIcon fontSize="small" /> : <FolderIcon fontSize="small" />) : <InsertDriveFileIcon fontSize="small" />}
             </ListItemIcon>
             <ListItemText
               primary={name}
-              primaryTypographyProps={{ variant: "body2" }}
+              primaryTypographyProps={{ variant: "body2", sx: { fontSize: 12, fontWeight: isDir ? 600 : 400 } }}
             />
           </ListItemButton>
-          {selectedPath === full && !isDir ? (
-            <Box sx={{ pl: depth * 2 + 4, pb: 0.5 }}>
-              <Button
-                size="small"
-                variant="text"
-                onClick={() => {
-                  const fullFile = full;
-                  if (type === "script") startPanelDialog(fullFile);
-                  else alert(`FPGA file selected: ${fullFile}`);
-                }}
-              >
-                Open
-              </Button>
-            </Box>
-          ) : null}
           {isDir && isOpen ? renderBranch(full, depth + 1) : null}
         </Box>
       );
@@ -318,8 +305,26 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1 }}>
-      <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} alignItems="center">
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 0,
+        overflow: "hidden",
+        borderRadius: 1.5,
+        borderColor: "var(--border)",
+        bgcolor: "var(--panel2)",
+      }}
+    >
+      <Stack
+        direction={{ xs: "column", sm: "row" }}
+        spacing={0.75}
+        alignItems="center"
+        sx={{
+          p: 0.75,
+          background: "linear-gradient(180deg, rgba(255,255,255,0.09), rgba(255,255,255,0.02))",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         {fileExplorerConfig.showTypeToggle ? (
           <Select size="small" value={type} onChange={(e) => setType(e.target.value as FileType)}>
             <MenuItem value="script">script</MenuItem>
@@ -331,47 +336,96 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         </Button>
       </Stack>
 
-      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.75 }}>
+      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ p: 0.75, pt: 0.6 }}>
         <Button size="small" variant="outlined" onClick={refreshRoot} disabled={path === ""}>
           Root
         </Button>
-        <Typography variant="caption" sx={{ ml: 1, fontFamily: "var(--mono)" }}>
+        <Typography
+          variant="caption"
+          sx={{
+            ml: 1,
+            px: 0.75,
+            py: 0.2,
+            fontFamily: "var(--mono)",
+            border: "1px solid var(--border)",
+            borderRadius: 0.8,
+            bgcolor: "rgba(0,0,0,0.16)",
+          }}
+        >
           {path ? `/${path}` : type === "script" ? "/user_scripts" : "/user_fpga"}
         </Typography>
       </Stack>
 
-      <List dense sx={{ mt: 0.75, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 1 }}>
+      <List
+        dense
+        sx={{
+          mt: 0,
+          mx: 0.75,
+          mb: 0.75,
+          p: 0.5,
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 1.2,
+          bgcolor: "rgba(0,0,0,0.18)",
+          maxHeight: 340,
+          overflow: "auto",
+        }}
+      >
         {renderBranch(path || "", 0)}
       </List>
 
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-        Tip: selecting a script opens an Experiment Panel.
+      <Typography variant="caption" color="text.secondary" sx={{ px: 0.9, pb: 0.9, display: "block" }}>
+        Finder-style tip: double-click a script to create/open a panel.
       </Typography>
 
-      <Dialog open={panelDialogOpen} onClose={() => setPanelDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create panel</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1.5, pt: 1 }}>
-          <TextField
-            size="small"
-            label="Panel name"
-            value={panelName}
-            onChange={(e) => setPanelName(e.target.value)}
-          />
-          <TextField
-            size="small"
-            label="Description"
-            value={panelDesc}
-            onChange={(e) => setPanelDesc(e.target.value)}
-            multiline
-            minRows={2}
-          />
-          <TextField
-            size="small"
-            label="Tags (CSV)"
-            value={panelTags}
-            onChange={(e) => setPanelTags(e.target.value)}
-            placeholder="calib, ion, baseline"
-          />
+      <Dialog
+        open={panelDialogOpen}
+        onClose={() => setPanelDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth={false}
+        PaperProps={{ sx: { width: "min(460px, calc(100% - 24px))", m: 1.5 } }}
+      >
+        <DialogTitle sx={{ overflowWrap: "anywhere", pb: 1, borderBottom: "1px solid var(--border)" }}>
+          Create panel
+        </DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1.5, pt: 1.5, overflowX: "hidden" }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Panel title
+            </Typography>
+            <TextField
+              size="small"
+              value={panelName}
+              onChange={(e) => setPanelName(e.target.value)}
+              placeholder="e.g. example_script"
+              fullWidth
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Description
+            </Typography>
+            <TextField
+              size="small"
+              value={panelDesc}
+              onChange={(e) => setPanelDesc(e.target.value)}
+              multiline
+              minRows={2}
+              placeholder="Short summary of what this panel does"
+              fullWidth
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Tags (CSV)
+            </Typography>
+            <TextField
+              size="small"
+              value={panelTags}
+              onChange={(e) => setPanelTags(e.target.value)}
+              placeholder="calib, ion, baseline"
+              fullWidth
+            />
+          </Box>
           {panelOpenConfig.enableClassSelection ? (
             classOptions.length ? (
               <Select
@@ -396,7 +450,11 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
               />
             )
           ) : null}
-          <Typography variant="caption" color="text.secondary">
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
+          >
             Script: {pendingScriptPath || "(none)"}
           </Typography>
         </DialogContent>
@@ -404,6 +462,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           <Button onClick={() => setPanelDialogOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            sx={{ textTransform: "none" }}
             onClick={async () => {
               const scriptPath = pendingScriptPath;
               if (!scriptPath) return;

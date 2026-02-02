@@ -157,6 +157,7 @@ function normalizeRun(raw: any): RunDetailResp {
     rid,
     name,
     script_path: scriptPath,
+    class_name: raw?.class_name ?? undefined,
     author: { user_id: userId ?? 0, username },
     priority: normalizePriority(raw?.priority),
     schedule_type: raw?.schedule_type ?? "NOW",

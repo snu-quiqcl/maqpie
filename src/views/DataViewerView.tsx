@@ -522,32 +522,57 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         </Box>
       </Box>
 
-      <Dialog open={archiveOpen} onClose={() => setArchiveOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Create archive</DialogTitle>
-        <DialogContent sx={{ display: "grid", gap: 1.25, pt: 1 }}>
-          <TextField
-            label="Title"
-            size="small"
-            value={archiveTitle}
-            onChange={(e) => setArchiveTitle(e.target.value)}
-          />
-          <TextField
-            label="Tags (CSV)"
-            size="small"
-            value={archiveTags}
-            onChange={(e) => setArchiveTags(e.target.value)}
-          />
-          <TextField
-            label="Note"
-            size="small"
-            value={archiveNote}
-            onChange={(e) => setArchiveNote(e.target.value)}
-            multiline
-            minRows={2}
-          />
+      <Dialog
+        open={archiveOpen}
+        onClose={() => setArchiveOpen(false)}
+        maxWidth="xs"
+        fullWidth={false}
+        PaperProps={{ sx: { width: "min(460px, calc(100% - 24px))", m: 1.5 } }}
+      >
+        <DialogTitle sx={{ overflowWrap: "anywhere", pb: 1, borderBottom: "1px solid var(--border)" }}>
+          Create archive
+        </DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1.25, pt: 1.5, overflowX: "hidden" }}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Archive title
+            </Typography>
+            <TextField
+              size="small"
+              value={archiveTitle}
+              onChange={(e) => setArchiveTitle(e.target.value)}
+              placeholder={`Run ${rid} Archive`}
+              fullWidth
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Tags (CSV)
+            </Typography>
+            <TextField
+              size="small"
+              value={archiveTags}
+              onChange={(e) => setArchiveTags(e.target.value)}
+              placeholder="analysis, calibration"
+              fullWidth
+            />
+          </Box>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              Note
+            </Typography>
+            <TextField
+              size="small"
+              value={archiveNote}
+              onChange={(e) => setArchiveNote(e.target.value)}
+              multiline
+              minRows={2}
+              fullWidth
+            />
+          </Box>
           <Box>
             <Typography variant="caption" color="text.secondary">Datasets</Typography>
-            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+            <Stack spacing={0.5} sx={{ mt: 0.5, maxHeight: 180, overflowY: "auto", pr: 0.5 }}>
               {datasets.map((d) => {
                 const checked = archiveDatasets.includes(d.name);
                 return (
@@ -564,7 +589,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                         }}
                       />
                     }
-                    label={<Typography variant="caption">{d.name}</Typography>}
+                    label={<Typography variant="caption" sx={{ overflowWrap: "anywhere" }}>{d.name}</Typography>}
                   />
                 );
               })}
@@ -575,6 +600,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           <Button onClick={() => setArchiveOpen(false)}>Cancel</Button>
           <Button
             variant="contained"
+            sx={{ textTransform: "none" }}
             onClick={async () => {
               try {
                 const tags = archiveTags.split(",").map((t) => t.trim()).filter(Boolean);

@@ -56,6 +56,7 @@ export type RunListItem = {
   rid: number;
   name: string;
   script_path: string;
+  class_name?: string;
   author: { user_id: number; username: string };
   priority: Priority;
   schedule_type: ScheduleType;

@@ -129,6 +129,34 @@ body[data-theme="mint"] {
   --login-logo-shadow: rgba(14, 60, 44, 0.2);
 }
 
+/* Force readable dark text treatment on bright themes. */
+body[data-theme="paper"],
+body[data-theme="sunrise"],
+body[data-theme="mint"] {
+  color-scheme: light;
+}
+
+body[data-theme="paper"] .MuiTypography-root,
+body[data-theme="paper"] .MuiTableCell-root,
+body[data-theme="paper"] .MuiButton-root,
+body[data-theme="paper"] .MuiInputBase-input,
+body[data-theme="paper"] .MuiInputLabel-root,
+body[data-theme="paper"] .MuiMenuItem-root,
+body[data-theme="sunrise"] .MuiTypography-root,
+body[data-theme="sunrise"] .MuiTableCell-root,
+body[data-theme="sunrise"] .MuiButton-root,
+body[data-theme="sunrise"] .MuiInputBase-input,
+body[data-theme="sunrise"] .MuiInputLabel-root,
+body[data-theme="sunrise"] .MuiMenuItem-root,
+body[data-theme="mint"] .MuiTypography-root,
+body[data-theme="mint"] .MuiTableCell-root,
+body[data-theme="mint"] .MuiButton-root,
+body[data-theme="mint"] .MuiInputBase-input,
+body[data-theme="mint"] .MuiInputLabel-root,
+body[data-theme="mint"] .MuiMenuItem-root {
+  color: var(--text) !important;
+}
+
 html, body {
   height: 100%;
   margin: 0;
@@ -205,7 +233,7 @@ hr {
   top: 6px;
   left: 6px;
   right: 6px;
-  height: 34px;
+  height: 42px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -222,6 +250,15 @@ hr {
   border: 1px solid var(--border);
   background: var(--panel2);
   border-radius: var(--radius);
+  display: grid;
+  line-height: 1.05;
+  gap: 2px;
+}
+
+.brandSub {
+  font-weight: 500;
+  font-size: 10px;
+  color: var(--muted);
 }
 
 .topbarRight {
@@ -238,6 +275,12 @@ hr {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.workspacePill {
+  gap: 5px;
+  min-width: 240px;
+  justify-content: space-between;
 }
 
 .small { font-size: 12px; color: var(--muted); }
@@ -370,7 +413,7 @@ body.grid-visible .desktop {
 
 .loginCard {
   position: relative;
-  width: 520px;
+  width: min(420px, 92vw);
   padding: 28px 22px;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -391,7 +434,7 @@ body.grid-visible .desktop {
 .loginTitle {
   font-weight: 700;
   letter-spacing: 0.2px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .loginSub {
@@ -403,6 +446,7 @@ body.grid-visible .desktop {
 .loginForm {
   display: grid;
   gap: 10px;
+  margin-top: 16px;
 }
 
 .loginForm button {
@@ -495,6 +539,15 @@ body.grid-visible .desktop {
   background: transparent;
   user-select: none;
   white-space: nowrap;
+  max-width: min(300px, 40vw);
+  min-width: 0;
+}
+
+.tabLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tab.active {
   background: color-mix(in srgb, var(--accent) 12%, transparent);

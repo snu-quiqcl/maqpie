@@ -5,9 +5,10 @@ import SettingsIcon from "@mui/icons-material/Settings";
 import type { WindowModel } from "./state/store";
 import Window from "./components/Window";
 import ViewHost from "./components/ViewHost";
-import { api, setToken, setUserId } from "./lib/api";
+import { api, getApiBase, setToken, setUserId } from "./lib/api";
 import { useAppStore } from "./state/store";
 import longLogo from "./assets/longlogo.png";
+import { workspaceConfig } from "./config/workspace";
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
@@ -34,6 +35,10 @@ export default function App() {
   const [themeId, setThemeId] = useState(localStorage.getItem("ui_theme") ?? "default");
   const [bgColor, setBgColor] = useState(localStorage.getItem("ui_bg_color") ?? "");
   const [bgImage, setBgImage] = useState(localStorage.getItem("ui_bg_image") ?? "");
+  const [connectionInfo, setConnectionInfo] = useState<{ state: "checking" | "connected" | "offline"; detail: string }>({
+    state: "checking",
+    detail: "Checking backend...",
+  });
 
   const popoutParams = new URLSearchParams(window.location.search);
   const isPopout = popoutParams.get("popout") === "1";
@@ -91,6 +96,36 @@ export default function App() {
   }, [bgImage]);
 
   useEffect(() => {
+    if (authed) return;
+    let cancelled = false;
+
+    async function probeBackend() {
+      const base = getApiBase();
+      const start = performance.now();
+      try {
+        const resp = await fetch(`${base}/login/`, { method: "OPTIONS" });
+        if (cancelled) return;
+        const ms = Math.round(performance.now() - start);
+        setConnectionInfo({
+          state: "connected",
+          detail: `Connected (HTTP ${resp.status}) · ${ms} ms`,
+        });
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : "Network error";
+        setConnectionInfo({ state: "offline", detail: `Cannot reach backend · ${msg}` });
+      }
+    }
+
+    probeBackend();
+    const timer = window.setInterval(probeBackend, 8000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authed]);
+
+  useEffect(() => {
     function popIn(tab: WindowModel["tabs"][number] & { originWindowId?: string }) {
       const state = useAppStore.getState();
       const exists = state.windows.some((w) => w.tabs.some((t) => t.tabId === tab.tabId));
@@ -111,8 +146,8 @@ export default function App() {
         windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
         x: 140,
         y: 120,
-        w: 720,
-        h: 520,
+        w: 620,
+        h: 440,
         locked: false,
         tabs: [tab],
         activeTabId: tab.tabId,
@@ -191,8 +226,8 @@ export default function App() {
       windowId: uid("win"),
       x: 220,
       y: 140,
-      w: 720,
-      h: 540,
+      w: 680,
+      h: 480,
       locked: false,
       tabs: [{ tabId, title: "Data Viewer", view: "dataViewer", props: { rid: 0, datasetName: "" } }],
       activeTabId: tabId,
@@ -206,8 +241,8 @@ export default function App() {
       windowId: uid("win"),
       x: 240,
       y: 140,
-      w: 820,
-      h: 520,
+      w: 700,
+      h: 460,
       locked: false,
       tabs: [{ tabId, title: "Panel Configs", view: "panelConfigs", props: {} }],
       activeTabId: tabId,
@@ -221,8 +256,8 @@ export default function App() {
       windowId: uid("win"),
       x: 200,
       y: 160,
-      w: 720,
-      h: 520,
+      w: 680,
+      h: 460,
       locked: false,
       tabs: [{ tabId, title: "Archives", view: "archives", props: {} }],
       activeTabId: tabId,
@@ -236,8 +271,8 @@ export default function App() {
       windowId: uid("win"),
       x: 260,
       y: 140,
-      w: 640,
-      h: 460,
+      w: 560,
+      h: 400,
       locked: false,
       tabs: [{ tabId, title: "TTL Controls", view: "ttlControls", props: {} }],
       activeTabId: tabId,
@@ -293,10 +328,33 @@ export default function App() {
       {!authed ? (
         <div className="loginScreen">
           <div className="loginBackdrop" />
+          <Paper
+            variant="outlined"
+            sx={{
+              position: "fixed",
+              top: 14,
+              right: 14,
+              zIndex: 3,
+              p: 1,
+              minWidth: 280,
+            }}
+          >
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+              Team: {workspaceConfig.teamName}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: "block", fontFamily: "var(--mono)" }}>
+              Backend: {getApiBase()}
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{ display: "block", color: connectionInfo.state === "connected" ? "success.main" : connectionInfo.state === "offline" ? "error.main" : "text.secondary" }}
+            >
+              {connectionInfo.detail}
+            </Typography>
+          </Paper>
           <div className="loginCard">
             <img className="loginLogo" src={longLogo} alt="Organization logo" />
             <Typography className="loginTitle">Sign in</Typography>
-            <Typography className="loginSub">to access to QuIQCL Lab Software</Typography>
             <Stack className="loginForm" spacing={1.25}>
               <TextField
                 size="small"
@@ -320,13 +378,27 @@ export default function App() {
               <Button variant="contained" disabled={loading} onClick={doLogin}>
                 {loading ? "Signing in..." : "Login"}
               </Button>
+              <Typography variant="caption" color="text.secondary">Cannot log in?</Typography>
+              <Button
+                size="small"
+                variant="outlined"
+                component="a"
+                href={`mailto:${workspaceConfig.adminEmail}`}
+              >
+                Contact administrator
+              </Button>
             </Stack>
           </div>
         </div>
       ) : (
       <>
       <div className="topbar">
-        <div className="brand">IQUIP Web prototype</div>
+        <div className="brand">
+          <div>IQUIP Web prototype</div>
+          <div className="brandSub">
+            {workspaceConfig.teamName}
+          </div>
+        </div>
 
         <div className="pill">
           <Stack direction="row" spacing={0.5}>
@@ -336,6 +408,11 @@ export default function App() {
             <Button size="small" variant="outlined" onClick={openArchives}>Archives</Button>
             <Button size="small" variant="outlined" onClick={openTtlControls}>TTL</Button>
           </Stack>
+        </div>
+
+        <div className="pill workspacePill">
+          <Typography variant="caption" color="text.secondary">Team</Typography>
+          <Typography variant="body2">{workspaceConfig.teamName}</Typography>
         </div>
 
         <div className="topbarRight">
@@ -439,6 +516,11 @@ export default function App() {
                 </Button>
               ) : null}
             </Stack>
+
+            <Typography variant="subtitle2" sx={{ mt: 3 }}>Workspace identity</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Team/admin contact are file-based in `src/config/workspace.ts`.
+            </Typography>
           </Paper>
         </div>
       )}

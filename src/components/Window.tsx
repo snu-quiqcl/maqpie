@@ -175,7 +175,10 @@ export default function Window({ model }: { model: WindowModel }) {
     >
       <div className={`window ${model.locked ? "singleton" : ""}`} style={{ width: "100%", height: "100%" }}>
         <div className="titlebar" onPointerDown={startDrag}>
-          <div className="title">
+          <div
+            className="title"
+            title={isPanelWindow ? `Panels (${model.tabs.length})` : active?.title ?? "Window"}
+          >
             {isPanelWindow ? `Panels (${model.tabs.length})` : active?.title ?? "Window"}
           </div>
           <div className="actions">
@@ -235,7 +238,7 @@ export default function Window({ model }: { model: WindowModel }) {
                     setActiveTab(model.windowId, t.tabId);
                   }}
                 >
-                  <span>{t.title}</span>
+                  <span className="tabLabel" title={t.title}>{t.title}</span>
                   <span className="tabActions">
                     {!model.locked && (
                       <button
