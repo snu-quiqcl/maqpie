@@ -142,6 +142,11 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         if (!selected && items.length > 0) {
           setSelected(items[0].name);
         }
+        if (items.length === 0) {
+          setMeta(null);
+          setData([]);
+          showToast("No datasets", "This run has no datasets yet.");
+        }
       } catch (e: any) {
         showToast("Datasets load failed", e.message || String(e));
       } finally {
@@ -166,6 +171,11 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         const items = (a.datasets ?? []).map((name) => ({ name })) as DatasetItem[];
         setDatasets(items);
         if (!selected && items.length > 0) setSelected(items[0].name);
+        if (items.length === 0) {
+          setMeta(null);
+          setData([]);
+          showToast("No datasets", "This archive has no datasets.");
+        }
       } catch (e: any) {
         showToast("Archive load failed", e.message || String(e));
       } finally {
@@ -208,8 +218,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
         if (!mounted) return;
 
-        setMeta(m);
-        setData(d?.data ?? []);
       } catch (e: any) {
         showToast("Dataset load failed", e.message || String(e));
       } finally {
@@ -384,7 +392,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         <Stack direction="row" spacing={1} alignItems="center">
           {!archiveMode && (
             <FormControlLabel
-              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} />}
+              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0} />}
               label={<Typography variant="caption">Streaming</Typography>}
             />
           )}
@@ -439,6 +447,11 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
               </MenuItem>
             ))}
           </Select>
+          {datasets.length === 0 && !loading && (
+            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+              No datasets available for this run yet.
+            </Typography>
+          )}
 
           <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
             Plot mode

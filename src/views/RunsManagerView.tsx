@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
-import { api } from "../lib/api";
+import { api, normalizeRun, wsUrl } from "../lib/api";
 import type { RunListItem, RunStatus } from "../lib/types";
 import { useAppStore } from "../state/store";
 import { panelOpenConfig } from "../config/panels";
@@ -19,42 +19,71 @@ export default function RunsManagerView() {
   const addTabToWindow = useAppStore((s) => s.addTabToWindow);
 
   const [items, setItems] = useState<RunListItem[]>([]);
-  const ALL_STATUSES: RunStatus[] = ["QUEUED", "RUNNING", "COMPLETED"];
-  const [selectedStatuses, setSelectedStatuses] = useState<RunStatus[]>(["QUEUED", "RUNNING", "COMPLETED"]);
+  const ALL_STATUSES: RunStatus[] = ["QUEUED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "ABORTED"];
+  const [selectedStatuses, setSelectedStatuses] = useState<RunStatus[]>(["QUEUED", "RUNNING", "COMPLETED", "FAILED"]);
   const [loading, setLoading] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const [contextTarget, setContextTarget] = useState<RunListItem | null>(null);
   const [contextAnchor, setContextAnchor] = useState<{ x: number; y: number } | null>(null);
   const [infoTarget, setInfoTarget] = useState<RunListItem | null>(null);
+  const [wsNonce, setWsNonce] = useState(0);
+  const lastStatusRef = useRef<Record<number, RunStatus>>({});
 
-  async function refresh() {
-    setLoading(true);
-    try {
-      const status = selectedStatuses.length ? selectedStatuses.join(",") : "";
-      const query: Record<string, string> = { limit: "50" };
-      if (status) query.status = status;
-      if (tagQuery.trim()) query.tag = tagQuery.trim();
-      const resp = await api.listRuns(query);
-      let next = resp.items ?? [];
-      if (tagQuery.trim()) {
-        const q = tagQuery.trim().toLowerCase();
-        next = next.filter((r) => (r.tags ?? []).some((t) => t.toLowerCase().includes(q)));
-      }
-      setItems(next);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      showToast("Runs error", msg);
-    } finally {
-      setLoading(false);
-    }
+  function refresh() {
+    setWsNonce((n) => n + 1);
   }
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 2000);
-    return () => clearInterval(t);
+    setLoading(true);
+    const status = selectedStatuses.length ? selectedStatuses.join(",") : "";
+    const query: Record<string, string> = { limit: "50" };
+    if (status) query.status = status;
+    if (tagQuery.trim()) query.tag = tagQuery.trim();
+
+    const ws = new WebSocket(wsUrl("/runs/stream/"));
+    let closed = false;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "subscribe", filters: query }));
+    };
+    ws.onmessage = (evt) => {
+      try {
+        const data = JSON.parse(evt.data || "{}");
+        if (data?.type !== "runs") return;
+        let next = Array.isArray(data.items) ? data.items.map(normalizeRun) : [];
+        const nextStatus: Record<number, RunStatus> = {};
+        for (const r of next) {
+          nextStatus[r.rid] = r.status;
+          const prev = lastStatusRef.current[r.rid];
+          if (prev && prev !== r.status && r.status === "FAILED") {
+            showToast("Run failed", `rid=${r.rid} · ${r.name || r.script_path}`);
+          }
+        }
+        lastStatusRef.current = nextStatus;
+        if (tagQuery.trim()) {
+          const q = tagQuery.trim().toLowerCase();
+          next = next.filter((r) => (r.tags ?? []).some((t) => t.toLowerCase().includes(q)));
+        }
+        setItems(next);
+      } finally {
+        setLoading(false);
+      }
+    };
+    ws.onerror = () => {
+      if (!closed) showToast("Runs stream error", "WebSocket connection failed");
+      setLoading(false);
+    };
+    ws.onclose = () => {
+      closed = true;
+      setLoading(false);
+    };
+
+    return () => {
+      closed = true;
+      ws.close();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStatuses, tagQuery]);
+  }, [selectedStatuses, tagQuery, wsNonce]);
 
   function openData(rid: number) {
     // Open a chooser tab: you pick dataset in the DataViewer itself

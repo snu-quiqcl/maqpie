@@ -146,7 +146,7 @@ function normalizeStatus(s?: string): RunStatus {
   return "FAILED";
 }
 
-function normalizeRun(raw: any): RunDetailResp {
+export function normalizeRun(raw: any): RunDetailResp {
   const rid = raw?.rid ?? raw?.id ?? 0;
   const scriptPath = raw?.script_path ?? "";
   const name = raw?.name ?? raw?.script_name ?? scriptPath ?? `Run ${rid}`;
