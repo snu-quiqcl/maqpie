@@ -62,7 +62,7 @@ export default function RunsManagerView() {
         lastStatusRef.current = nextStatus;
         if (tagQuery.trim()) {
           const q = tagQuery.trim().toLowerCase();
-          next = next.filter((r) => (r.tags ?? []).some((t) => t.toLowerCase().includes(q)));
+          next = next.filter((r: RunListItem) => (r.tags ?? []).some((t: string) => t.toLowerCase().includes(q)));
         }
         setItems(next);
       } finally {
@@ -93,9 +93,10 @@ export default function RunsManagerView() {
       view: "dataViewer" as const,
       props: { rid, datasetName: "" },
     };
-    const target = windows.find((w) => !w.locked);
-    if (target) addTabToWindow(target.windowId, tab, true);
-    else {
+    const target = windows.find((w) => !w.locked && !w.tabs.every((t) => t.view === "experimentPanel"));
+    if (target) {
+      addTabToWindow(target.windowId, tab, true);
+    } else {
       const win = {
         windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
         x: 160,

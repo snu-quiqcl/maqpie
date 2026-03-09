@@ -15,6 +15,7 @@ export default function TTLControlsView() {
   const [devices, setDevices] = useState<string[]>([]);
   const [items, setItems] = useState<Record<string, TtlItem>>({});
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -39,27 +40,47 @@ export default function TTLControlsView() {
   }, [showToast]);
 
   useEffect(() => {
-    const ws = new WebSocket(wsUrl("/ttl/status/"));
-    wsRef.current = ws;
-    ws.onmessage = (ev) => {
-      try {
-        const data = JSON.parse(ev.data);
-        if (data?.type !== "ttl_status") return;
-        const next: Record<string, TtlItem> = {};
-        for (const it of data.items ?? []) {
-          next[it.device] = it;
+    let closing = false;
+
+    const connect = () => {
+      const ws = new WebSocket(wsUrl("/ttl/status/"));
+      wsRef.current = ws;
+
+      ws.onmessage = (ev) => {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data?.type !== "ttl_status") return;
+          const next: Record<string, TtlItem> = {};
+          for (const it of data.items ?? []) {
+            next[it.device] = it;
+          }
+          setItems(next);
+        } catch {
+          // ignore
         }
-        setItems(next);
-      } catch {
-        // ignore
-      }
+      };
+
+      ws.onerror = () => {
+        if (!closing) showToast("TTL stream error", "WebSocket error. Retrying...");
+      };
+
+      ws.onclose = () => {
+        wsRef.current = null;
+        if (closing) return;
+        if (reconnectTimerRef.current != null) window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = window.setTimeout(connect, 1000);
+      };
     };
-    ws.onerror = () => {
-      showToast("TTL stream error", "WebSocket error.");
-    };
+
+    connect();
     return () => {
+      closing = true;
+      if (reconnectTimerRef.current != null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       try {
-        ws.close();
+        wsRef.current?.close();
       } catch {
         // ignore
       }
