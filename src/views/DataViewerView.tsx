@@ -16,6 +16,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
+  Divider,
 } from "@mui/material";
 import Plot from "react-plotly.js";
 import { api, wsUrl } from "../lib/api";
@@ -38,6 +39,7 @@ type DatasetMeta = {
   units?: Record<string, string>;
   parameters?: Record<string, any>;
   hints?: Record<string, any>;
+  metadata?: Record<string, any>;
 };
 
 type PatchMsg =
@@ -49,6 +51,7 @@ type PatchMsg =
       updated_at?: string;
     }
   | { rid: number; name: string; type: "reset" };
+type AggMode = "none" | "sum" | "average" | "threshold";
 
 function safeJsonParse<T>(text: string): T | null {
   try {
@@ -79,12 +82,16 @@ function buildObjectFields(data: unknown[]): string[] {
   return Array.from(set);
 }
 
-function getFieldValue(row: DataRow, field: string, index: number): number | null {
+function getFieldValue(row: DataRow, field: string, index: number, arrayColumns?: string[]): number | null {
   if (field === "index") return index;
   if (Array.isArray(row)) {
-    const match = field.match(/^col(\d+)$/);
-    if (!match) return null;
-    const idx = Number(match[1]);
+    let idx = -1;
+    if (arrayColumns && arrayColumns.length > 0) idx = arrayColumns.indexOf(field);
+    if (idx < 0) {
+      const match = field.match(/^col(\d+)$/);
+      if (!match) return null;
+      idx = Number(match[1]);
+    }
     const val = row[idx];
     const num = Number(val);
     return Number.isFinite(num) ? num : null;
@@ -101,6 +108,29 @@ function getFieldValue(row: DataRow, field: string, index: number): number | nul
   return null;
 }
 
+function asStringList(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x) => typeof x === "string").map((x) => String(x));
+}
+
+function toNumberArray(v: unknown): number[] {
+  if (!Array.isArray(v)) return [];
+  const out: number[] = [];
+  for (const x of v) {
+    const n = Number(x);
+    if (Number.isFinite(n)) out.push(n);
+  }
+  return out;
+}
+
+function aggregate(values: number[], mode: AggMode, threshold: number): number | null {
+  if (values.length === 0) return null;
+  if (mode === "sum") return values.reduce((a, b) => a + b, 0);
+  if (mode === "average") return values.reduce((a, b) => a + b, 0) / values.length;
+  if (mode === "threshold") return values.filter((v) => v > threshold).length;
+  return null;
+}
+
 export default function DataViewerView({ rid, datasetName, archiveId }: { rid: number; datasetName?: string; archiveId?: number }) {
   const showToast = useAppStore((s) => s.showToast);
 
@@ -108,11 +138,23 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const [selected, setSelected] = useState<string>(datasetName ?? "");
   const [meta, setMeta] = useState<DatasetMeta | null>(null);
   const [data, setData] = useState<any[]>([]);
+  const [columns, setColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [plotMode, setPlotMode] = useState<"1d" | "2d">("1d");
   const [xField, setXField] = useState("");
   const [yField, setYField] = useState("");
   const [zField, setZField] = useState("");
+  const [xAgg, setXAgg] = useState<AggMode>("none");
+  const [yAgg, setYAgg] = useState<AggMode>("none");
+  const [zAgg, setZAgg] = useState<AggMode>("none");
+  const [xAggField, setXAggField] = useState("");
+  const [yAggField, setYAggField] = useState("");
+  const [zAggField, setZAggField] = useState("");
+  const [xThreshold, setXThreshold] = useState("0");
+  const [yThreshold, setYThreshold] = useState("0");
+  const [zThreshold, setZThreshold] = useState("0");
+  const [selectedVariable, setSelectedVariable] = useState("");
+  const [selectedDataColumn, setSelectedDataColumn] = useState("");
 
   const [streaming, setStreaming] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -207,12 +249,14 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             dtype: "unknown",
             shape: [],
           });
+          setColumns(Array.isArray(d?.columns) ? d.columns : []);
           setData(d?.data ?? []);
         } else {
           const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
           const d: any = await api.getDatasetData(rid, selected, { format: "json" });
           if (!mounted) return;
           setMeta(m);
+          setColumns(Array.isArray(d?.columns) ? d.columns : []);
           setData(d?.data ?? []);
         }
 
@@ -229,6 +273,43 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       mounted = false;
     };
   }, [rid, ridValid, selected, showToast, archiveMode, archiveId]);
+
+  const schemaParamAxes = useMemo(() => asStringList(meta?.metadata?.param_axes), [meta]);
+  const schemaDataAxes = useMemo(() => asStringList(meta?.metadata?.data_axes), [meta]);
+  const inferredMatrixShape = useMemo(() => {
+    const fromMeta = Array.isArray(meta?.shape) ? meta?.shape.map((v) => Number(v)) : [];
+    const metaRows = fromMeta.length >= 2 && Number.isFinite(fromMeta[0]) ? Math.max(0, Math.trunc(fromMeta[0])) : 0;
+    const metaCols = fromMeta.length >= 2 && Number.isFinite(fromMeta[1]) ? Math.max(0, Math.trunc(fromMeta[1])) : 0;
+    const is2DArray = Array.isArray(data) && data.length > 0 && data.every((r) => Array.isArray(r));
+    const dataRows = is2DArray ? data.length : 0;
+    const dataCols = is2DArray ? Math.max(...(data as unknown[][]).map((r) => r.length), 0) : 0;
+
+    const rows = metaRows > 0 ? metaRows : dataRows;
+    const cols = metaCols > 0 ? metaCols : dataCols;
+    const matrixRowMode = rows > 0 && cols > 0 && rows <= 32 && cols > rows;
+    return { rows, cols, matrixRowMode };
+  }, [meta, data]);
+  const schemaDataAxesEffective = useMemo(() => {
+    const explicit = asStringList(meta?.metadata?.data_axes_effective);
+    if (explicit.length > 0) return explicit;
+    const fromDataAxes = schemaDataAxes.filter((name) => name !== "_");
+    if (fromDataAxes.length > 0) return fromDataAxes;
+    if (inferredMatrixShape.matrixRowMode) {
+      return Array.from({ length: inferredMatrixShape.rows }, (_, i) => `row${i}`);
+    }
+    return [];
+  }, [meta, schemaDataAxes, inferredMatrixShape]);
+  const schemaMode = columns.length === 0 && schemaDataAxesEffective.length > 0;
+
+  useEffect(() => {
+    const varOpts = schemaParamAxes.length > 0 ? schemaParamAxes : ["index"];
+    if (!selectedVariable || !varOpts.includes(selectedVariable)) {
+      setSelectedVariable(varOpts[0]);
+    }
+    if (!selectedDataColumn || !schemaDataAxesEffective.includes(selectedDataColumn)) {
+      setSelectedDataColumn(schemaDataAxesEffective[0] ?? "");
+    }
+  }, [schemaParamAxes, schemaDataAxesEffective, selectedVariable, selectedDataColumn]);
 
   // Streaming WS
   useEffect(() => {
@@ -296,6 +377,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   }, [rid, ridValid, selected, streaming, showToast, archiveMode]);
 
   const fieldOptions = useMemo(() => {
+    if (columns.length > 0) return columns;
     const base: string[] = ["index"];
     if (!data || data.length === 0) {
       const metaFields = meta?.parameters ? Object.keys(meta.parameters) : [];
@@ -309,36 +391,121 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       : ["value"];
     const metaFields = meta?.parameters ? Object.keys(meta.parameters) : [];
     return Array.from(new Set([...base, ...dataFields, ...metaFields]));
-  }, [data, meta]);
+  }, [data, meta, columns]);
 
   useEffect(() => {
     if (fieldOptions.length === 0) return;
     if (!xField || !fieldOptions.includes(xField)) setXField(fieldOptions[0]);
     if (!yField || !fieldOptions.includes(yField)) setYField(fieldOptions[1] ?? fieldOptions[0]);
     if (!zField || !fieldOptions.includes(zField)) setZField(fieldOptions[2] ?? fieldOptions[1] ?? fieldOptions[0]);
+    if (!xAggField || !fieldOptions.includes(xAggField)) setXAggField(fieldOptions[1] ?? fieldOptions[0]);
+    if (!yAggField || !fieldOptions.includes(yAggField)) setYAggField(fieldOptions[0]);
+    if (!zAggField || !fieldOptions.includes(zAggField)) setZAggField(fieldOptions[0]);
   }, [fieldOptions, xField, yField, zField]);
 
   const plotTrace = useMemo(() => {
     if (!data || data.length === 0) return [];
-    const x: number[] = [];
-    const y: number[] = [];
-    const z: number[] = [];
 
-    data.forEach((row, idx) => {
-      const xVal = getFieldValue(row as DataRow, xField, idx);
-      const yVal = getFieldValue(row as DataRow, yField, idx);
-      const zVal = getFieldValue(row as DataRow, zField, idx);
-      if (plotMode === "1d") {
-        if (yVal === null) return;
-        x.push(xVal ?? idx);
-        y.push(yVal);
-        return;
+    if (schemaMode) {
+      const rows = Array.isArray(data) ? data : [];
+      const fullAxes =
+        schemaDataAxes.length > 0
+          ? schemaDataAxes
+          : (schemaDataAxesEffective.length > 0 ? schemaDataAxesEffective : []);
+      const label = selectedDataColumn || schemaDataAxesEffective[0];
+      const rowIdx = Math.max(0, fullAxes.indexOf(label));
+      const row = rows[rowIdx];
+
+      // Expected primary format: R x N (single save) -> selected row as 1D series.
+      // For R x N x S payloads, pick the first save index for now.
+      let y: number[] = [];
+      if (Array.isArray(row) && row.length > 0 && Array.isArray(row[0])) {
+        y = (row as unknown[]).map((cell) => {
+          const first = Array.isArray(cell) ? cell[0] : cell;
+          const n = Number(first);
+          return Number.isFinite(n) ? n : NaN;
+        }).filter((n) => Number.isFinite(n));
+      } else {
+        y = toNumberArray(row);
       }
-      if (xVal === null || yVal === null || zVal === null) return;
-      x.push(xVal);
-      y.push(yVal);
-      z.push(zVal);
+      const x = y.map((_, i) => i);
+
+      return [
+        {
+          x,
+          y,
+          type: "scattergl",
+          mode: "lines+markers",
+          marker: { size: 4, color: "#6cb6ff" },
+          line: { width: 1.5, color: "#6cb6ff" },
+          name: label || "data",
+        },
+      ];
+    }
+
+    const rows = Array.isArray(data) ? data : [];
+    const points = rows.map((row, idx) => {
+      const xVal = getFieldValue(row as DataRow, xField, idx, columns);
+      const yVal = getFieldValue(row as DataRow, yField, idx, columns);
+      const zVal = getFieldValue(row as DataRow, zField, idx, columns);
+      return { row, idx, x: xVal, y: yVal, z: zVal };
     });
+
+    let xyPoints = points.filter((p) => p.x !== null && p.y !== null) as Array<{ row: any; idx: number; x: number; y: number; z: number | null }>;
+    let xyzPoints = points.filter((p) => p.x !== null && p.y !== null && p.z !== null) as Array<{ row: any; idx: number; x: number; y: number; z: number }>;
+
+    const applyAxisAgg = (
+      src: Array<{ row: any; idx: number; x: number; y: number; z: number | null }>,
+      groupAxis: "x" | "y",
+      mode: AggMode,
+      valueField: string,
+      thresholdRaw: string
+    ) => {
+      if (mode === "none") return src;
+      const thr = Number(thresholdRaw);
+      const threshold = Number.isFinite(thr) ? thr : 0;
+      const groups = new Map<number, number[]>();
+      for (const p of src) {
+        const key = groupAxis === "x" ? p.x : p.y;
+        const m = getFieldValue(p.row as DataRow, valueField, p.idx, columns);
+        if (m === null) continue;
+        const arr = groups.get(key) ?? [];
+        arr.push(m);
+        groups.set(key, arr);
+      }
+      const out: Array<{ row: any; idx: number; x: number; y: number; z: number | null }> = [];
+      const keys = Array.from(groups.keys()).sort((a, b) => a - b);
+      for (const key of keys) {
+        const agg = aggregate(groups.get(key) ?? [], mode, threshold);
+        if (agg === null) continue;
+        if (groupAxis === "x") out.push({ row: null, idx: 0, x: key, y: agg, z: null });
+        else out.push({ row: null, idx: 0, x: agg, y: key, z: null });
+      }
+      return out;
+    };
+
+    xyPoints = applyAxisAgg(xyPoints, "x", xAgg, xAggField, xThreshold);
+    xyPoints = applyAxisAgg(xyPoints, "y", yAgg, yAggField, yThreshold);
+
+    if (plotMode === "2d") {
+      if (zAgg !== "none") {
+        const thr = Number(zThreshold);
+        const threshold = Number.isFinite(thr) ? thr : 0;
+        const vals: number[] = [];
+        for (const p of xyzPoints) {
+          const m = getFieldValue(p.row as DataRow, zAggField, p.idx, columns);
+          if (m !== null) vals.push(m);
+        }
+        const aggZ = aggregate(vals, zAgg, threshold);
+        if (aggZ !== null) {
+          xyzPoints = xyzPoints.map((p) => ({ ...p, z: aggZ }));
+        }
+      }
+    }
+
+    const x = plotMode === "2d" ? xyzPoints.map((p) => p.x) : xyPoints.map((p) => p.x);
+    const y = plotMode === "2d" ? xyzPoints.map((p) => p.y) : xyPoints.map((p) => p.y);
+    const z = xyzPoints.map((p) => p.z as number);
 
     if (plotMode === "1d") {
       return [
@@ -367,7 +534,10 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         },
       },
     ];
-  }, [data, plotMode, xField, yField, zField]);
+  }, [
+    data, plotMode, xField, yField, zField, schemaMode, schemaDataAxes, schemaDataAxesEffective, selectedDataColumn, columns,
+    xAgg, yAgg, zAgg, xAggField, yAggField, zAggField, xThreshold, yThreshold, zThreshold
+  ]);
 
   if (!ridValid) {
     return (
@@ -405,6 +575,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 try {
                   setLoading(true);
                   const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+                  setColumns(Array.isArray(d?.columns) ? d.columns : []);
                   setData(d?.data ?? []);
                 } catch (e: any) {
                   showToast("Refresh failed", e.message || String(e));
@@ -453,48 +624,145 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             </Typography>
           )}
 
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
-            Plot mode
-          </Typography>
-          <ToggleButtonGroup
-            exclusive
-            size="small"
-            value={plotMode}
-            onChange={(_, next) => next && setPlotMode(next)}
-            sx={{ mt: 0.5 }}
-          >
-            <ToggleButton value="1d">1D</ToggleButton>
-            <ToggleButton value="2d">2D</ToggleButton>
-          </ToggleButtonGroup>
+          {!schemaMode && (
+            <>
+              <Box sx={{ mt: 1.25, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Plot mode
+                </Typography>
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  value={plotMode}
+                  onChange={(_, next) => next && setPlotMode(next)}
+                  sx={{
+                    "& .MuiToggleButton-root": { px: 1.2, py: 0.25, fontSize: 12, minHeight: 28 },
+                  }}
+                >
+                  <ToggleButton value="1d">1D</ToggleButton>
+                  <ToggleButton value="2d">2D</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
 
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1.25, display: "block" }}>
-            Axes
-          </Typography>
-          <Stack spacing={0.75} sx={{ mt: 0.5 }}>
-            <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth>
-              {fieldOptions.map((f) => (
-                <MenuItem key={f} value={f}>
-                  X: {f}
-                </MenuItem>
-              ))}
-            </Select>
-            <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth>
-              {fieldOptions.map((f) => (
-                <MenuItem key={f} value={f}>
-                  Y: {f}
-                </MenuItem>
-              ))}
-            </Select>
-            {plotMode === "2d" && (
-              <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth>
-                {fieldOptions.map((f) => (
-                  <MenuItem key={f} value={f}>
-                    Z: {f}
-                  </MenuItem>
-                ))}
-              </Select>
-            )}
-          </Stack>
+              <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  X axis
+                </Typography>
+                <Stack spacing={0.6}>
+                  <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth>
+                    {fieldOptions.map((f) => (
+                      <MenuItem key={f} value={f}>{f}</MenuItem>
+                    ))}
+                  </Select>
+                  <Stack direction="row" spacing={0.6}>
+                    <Select size="small" value={xAgg} onChange={(e) => setXAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
+                      <MenuItem value="none">none</MenuItem>
+                      <MenuItem value="sum">sum</MenuItem>
+                      <MenuItem value="average">average</MenuItem>
+                      <MenuItem value="threshold">threshold</MenuItem>
+                    </Select>
+                    <Select size="small" value={xAggField} onChange={(e) => setXAggField(e.target.value)} fullWidth>
+                      {fieldOptions.map((f) => (
+                        <MenuItem key={`xagg-${f}`} value={f}>{f}</MenuItem>
+                      ))}
+                    </Select>
+                  </Stack>
+                  {xAgg === "threshold" && (
+                    <TextField size="small" value={xThreshold} onChange={(e) => setXThreshold(e.target.value)} placeholder="threshold" fullWidth />
+                  )}
+                </Stack>
+              </Box>
+
+              <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Y axis
+                </Typography>
+                <Stack spacing={0.6}>
+                  <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth>
+                    {fieldOptions.map((f) => (
+                      <MenuItem key={f} value={f}>{f}</MenuItem>
+                    ))}
+                  </Select>
+                  <Stack direction="row" spacing={0.6}>
+                    <Select size="small" value={yAgg} onChange={(e) => setYAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
+                      <MenuItem value="none">none</MenuItem>
+                      <MenuItem value="sum">sum</MenuItem>
+                      <MenuItem value="average">average</MenuItem>
+                      <MenuItem value="threshold">threshold</MenuItem>
+                    </Select>
+                    <Select size="small" value={yAggField} onChange={(e) => setYAggField(e.target.value)} fullWidth>
+                      {fieldOptions.map((f) => (
+                        <MenuItem key={`yagg-${f}`} value={f}>{f}</MenuItem>
+                      ))}
+                    </Select>
+                  </Stack>
+                  {yAgg === "threshold" && (
+                    <TextField size="small" value={yThreshold} onChange={(e) => setYThreshold(e.target.value)} placeholder="threshold" fullWidth />
+                  )}
+                </Stack>
+              </Box>
+
+              {plotMode === "2d" && (
+                <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                    Z axis
+                  </Typography>
+                  <Stack spacing={0.6}>
+                    <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth>
+                      {fieldOptions.map((f) => (
+                        <MenuItem key={f} value={f}>{f}</MenuItem>
+                      ))}
+                    </Select>
+                    <Stack direction="row" spacing={0.6}>
+                      <Select size="small" value={zAgg} onChange={(e) => setZAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
+                        <MenuItem value="none">none</MenuItem>
+                        <MenuItem value="sum">sum</MenuItem>
+                        <MenuItem value="average">average</MenuItem>
+                        <MenuItem value="threshold">threshold</MenuItem>
+                      </Select>
+                      <Select size="small" value={zAggField} onChange={(e) => setZAggField(e.target.value)} fullWidth>
+                        {fieldOptions.map((f) => (
+                          <MenuItem key={`zagg-${f}`} value={f}>{f}</MenuItem>
+                        ))}
+                      </Select>
+                    </Stack>
+                    {zAgg === "threshold" && (
+                      <TextField size="small" value={zThreshold} onChange={(e) => setZThreshold(e.target.value)} placeholder="threshold" fullWidth />
+                    )}
+                  </Stack>
+                </Box>
+              )}
+            </>
+          )}
+
+          {schemaMode && (
+            <>
+              <Box sx={{ mt: 1.25, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Variables
+                </Typography>
+                <Select size="small" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)} fullWidth>
+                  {(schemaParamAxes.length > 0 ? schemaParamAxes : ["index"]).map((name) => (
+                    <MenuItem key={name} value={name}>{name}</MenuItem>
+                  ))}
+                </Select>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                  Data column (single-select)
+                </Typography>
+                <Select
+                  size="small"
+                  value={selectedDataColumn}
+                  onChange={(e) => setSelectedDataColumn(e.target.value)}
+                  fullWidth
+                >
+                  {schemaDataAxesEffective.map((name) => (
+                    <MenuItem key={name} value={name}>{name}</MenuItem>
+                  ))}
+                </Select>
+              </Box>
+            </>
+          )}
 
           <Box sx={{ mt: 1.25 }}>
             <Typography variant="caption" color="text.secondary">
@@ -508,8 +776,10 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             Live plot
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            rows: {Array.isArray(data) ? data.length : 0} · x: {xField || "?"} · y: {yField || "?"}
-            {plotMode === "2d" ? ` · z: ${zField || "?"}` : ""}
+            rows: {Array.isArray(data) ? data.length : 0}
+            {schemaMode
+              ? ` · variable: ${selectedVariable || "?"} · column: ${selectedDataColumn || "?"}`
+              : ` · x: ${xField || "?"} · y: ${yField || "?"}${plotMode === "2d" ? ` · z: ${zField || "?"}` : ""}`}
           </Typography>
           <Box sx={{ mt: 0.75, height: 360 }}>
             <Plot
@@ -521,7 +791,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 plot_bgcolor: "rgba(0,0,0,0)",
                 font: { color: "#cdd6df" },
                 xaxis: { title: xField || "x" },
-                yaxis: { title: yField || "y" },
+                yaxis: { title: schemaMode ? (selectedDataColumn || "data") : (yField || "y") },
               }}
               style={{ width: "100%", height: "100%" }}
               useResizeHandler

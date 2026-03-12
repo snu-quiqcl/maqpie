@@ -168,6 +168,14 @@ html, body {
 }
 
 * { box-sizing: border-box; }
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
 
 #root {
   position: fixed;
