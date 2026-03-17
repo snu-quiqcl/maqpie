@@ -2,6 +2,7 @@ import type {
   ArchivesListResp,
   ArchiveDetailResp,
   DatasetDataResp,
+  DatasetQueryResp,
   DatasetMetaResp,
   DatasetsListResp,
   FileItem,
@@ -315,6 +316,11 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  queryDataset: (rid: number, dataset_name: string, body: { query: string; slice?: string }) =>
+    request<DatasetQueryResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   // Logs
   getLogs: (rid: number, from_seq?: number) => {
@@ -344,6 +350,11 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  queryArchivedDataset: (archive_id: number, dataset_name: string, body: { query: string; slice?: string }) =>
+    request<DatasetQueryResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 };
 
 // WebSocket URL helper

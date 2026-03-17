@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -47,11 +48,23 @@ type PatchMsg =
   | {
       rid: number;
       name: string;
-      type: "append";
-      points: Array<{ index: number; x: number; y: number[] | number }>;
+      dataset_id?: string;
+      type: "snapshot";
+      columns: string[];
+      data: unknown[];
       updated_at?: string;
     }
-  | { rid: number; name: string; type: "reset" };
+  | {
+      rid: number;
+      name: string;
+      dataset_id?: string;
+      type: "append";
+      columns: string[];
+      rows: unknown[];
+      updated_at?: string;
+    }
+  | { rid: number; name?: string; dataset_id?: string; type: "reset" }
+  | { rid: number; name?: string; dataset_id?: string; type: "error"; message?: string; updated_at?: string };
 type AggMode = "none" | "sum" | "average" | "threshold";
 
 function safeJsonParse<T>(text: string): T | null {
@@ -172,6 +185,10 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const [zThreshold, setZThreshold] = useState("0");
   const [selectedVariable, setSelectedVariable] = useState("");
   const [selectedDataColumn, setSelectedDataColumn] = useState("");
+  const [queryText, setQueryText] = useState("");
+  const [queryActive, setQueryActive] = useState(false);
+  const [querySummary, setQuerySummary] = useState<string>("");
+  const [queryOpen, setQueryOpen] = useState(false);
 
   const [streaming, setStreaming] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -268,6 +285,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           });
           setColumns(Array.isArray(d?.columns) ? d.columns : []);
           setData(d?.data ?? []);
+          setQueryActive(false);
+          setQuerySummary("");
         } else {
           const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
           const d: any = await api.getDatasetData(rid, selected, { format: "json" });
@@ -275,6 +294,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           setMeta(m);
           setColumns(Array.isArray(d?.columns) ? d.columns : []);
           setData(d?.data ?? []);
+          setQueryActive(false);
+          setQuerySummary("");
         }
 
         if (!mounted) return;
@@ -320,6 +341,14 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const explicitDatasetType = String(meta?.metadata?.dataset_type ?? meta?.hints?.dataset_type ?? "").toLowerCase();
   const scalarValue = useMemo(() => extractScalarValue(data), [data]);
   const scalarMode = explicitDatasetType === "scalar" || (columns.length === 0 && scalarValue !== null);
+  const sectionSx = {
+    mt: 1,
+    p: 0.9,
+    border: "1px solid var(--border)",
+    borderRadius: 1,
+    background: "color-mix(in srgb, var(--panel2) 72%, transparent)",
+  } as const;
+  const sectionTitleSx = { display: "block", mb: 0.5, letterSpacing: "0.02em" } as const;
 
   useEffect(() => {
     const varOpts = schemaParamAxes.length > 0 ? schemaParamAxes : ["index"];
@@ -353,7 +382,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ mode: "patch", period_ms: 200 }));
+      ws.send(JSON.stringify({ mode: "rows", period_ms: 200 }));
       showToast("Streaming", `Subscribed to ${selected}`);
     };
 
@@ -361,19 +390,29 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       const msg = safeJsonParse<PatchMsg>(ev.data);
       if (!msg) return;
 
+      if (msg.type === "error") {
+        showToast("Streaming error", msg.message || "Dataset stream failed.");
+        return;
+      }
+
       if (msg.type === "reset") {
         setData([]);
         return;
       }
 
+      if (msg.type === "snapshot") {
+        setColumns(Array.isArray(msg.columns) ? msg.columns : []);
+        setData(Array.isArray(msg.data) ? msg.data : []);
+        return;
+      }
+
       if (msg.type === "append") {
+        if (Array.isArray(msg.columns) && msg.columns.length > 0) {
+          setColumns(msg.columns);
+        }
         setData((prev) => {
-          // append patches as rows; you can do smarter indexing later
-          const next = prev.slice();
-          for (const p of msg.points) {
-            next.push([p.x, p.y]);
-          }
-          return next;
+          const nextRows = Array.isArray(msg.rows) ? msg.rows : [];
+          return prev.concat(nextRows);
         });
       }
     };
@@ -624,7 +663,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         <Stack direction="row" spacing={1} alignItems="center">
           {!archiveMode && (
             <FormControlLabel
-              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0} />}
+              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0 || queryActive} />}
               label={<Typography variant="caption">Streaming</Typography>}
             />
           )}
@@ -639,6 +678,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   const d: any = await api.getDatasetData(rid, selected, { format: "json" });
                   setColumns(Array.isArray(d?.columns) ? d.columns : []);
                   setData(d?.data ?? []);
+                  setQueryActive(false);
+                  setQuerySummary("");
                 } catch (e: any) {
                   showToast("Refresh failed", e.message || String(e));
                 } finally {
@@ -662,34 +703,125 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         </Stack>
       </Stack>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: "280px 1fr", gap: 1.5, mt: 1.5 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "256px 1fr", gap: 1.25, mt: 1.25 }}>
         <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
-            Datasets
-          </Typography>
-          <Select
-            size="small"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            fullWidth
-            disabled={datasets.length === 0}
-          >
-            {datasets.map((d) => (
-              <MenuItem key={d.name} value={d.name}>
-                {d.name}
-              </MenuItem>
-            ))}
-          </Select>
-          {datasets.length === 0 && !loading && (
-            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
-              No datasets available for this run yet.
+          <Box sx={{ ...sectionSx, mt: 0 }}>
+            <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
+              Dataset
             </Typography>
-          )}
+            <Select
+              size="small"
+              value={selected}
+              onChange={(e) => setSelected(e.target.value)}
+              fullWidth
+              disabled={datasets.length === 0}
+            >
+              {datasets.map((d) => (
+                <MenuItem key={d.name} value={d.name}>
+                  {d.name}
+                </MenuItem>
+              ))}
+            </Select>
+            {datasets.length === 0 && !loading ? (
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.65, display: "block" }}>
+                No datasets available yet.
+              </Typography>
+            ) : null}
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.75 }}>
+              <Typography variant="caption" color="text.secondary">
+                Advanced query
+              </Typography>
+              <Button size="small" variant="text" onClick={() => setQueryOpen((v) => !v)}>
+                {queryOpen ? "Hide" : "Show"}
+              </Button>
+            </Stack>
+            <Collapse in={queryOpen}>
+              <TextField
+                multiline
+                minRows={6}
+                maxRows={10}
+                value={queryText}
+                onChange={(e) => setQueryText(e.target.value)}
+                fullWidth
+                sx={{
+                  mt: 0.75,
+                  "& .MuiInputBase-root": {
+                    fontFamily: "var(--mono)",
+                    fontSize: 12,
+                    alignItems: "flex-start",
+                  },
+                }}
+              />
+              <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }}>
+                <Button
+                  size="small"
+                  variant="contained"
+                  disabled={!selected || loading || !queryText.trim()}
+                  onClick={async () => {
+                    if (!selected) return;
+                    try {
+                      setLoading(true);
+                      setStreaming(false);
+                      const resp = archiveMode && archiveId
+                        ? await api.queryArchivedDataset(archiveId, selected, { query: queryText })
+                        : await api.queryDataset(rid, selected, { query: queryText });
+                      setColumns(Array.isArray(resp?.columns) ? resp.columns : []);
+                      setData(Array.isArray(resp?.data) ? resp.data : []);
+                      setQueryActive(true);
+                      setQuerySummary(
+                        resp?.query
+                          ? `${resp.query.row_count} rows${resp.query.aggregated ? ", aggregated" : ""}${resp.query.grouped ? ", grouped" : ""}`
+                          : "Query applied"
+                      );
+                    } catch (e: any) {
+                      showToast("Query failed", e.message || String(e));
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
+                  Apply
+                </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  disabled={!queryActive || loading || !selected}
+                  onClick={async () => {
+                    if (!selected) return;
+                    try {
+                      setLoading(true);
+                      const d: any = archiveMode && archiveId
+                        ? await api.getArchivedDatasetData(archiveId, selected, { format: "json" })
+                        : await api.getDatasetData(rid, selected, { format: "json" });
+                      setColumns(Array.isArray(d?.columns) ? d.columns : []);
+                      setData(d?.data ?? []);
+                      setQueryActive(false);
+                      setQuerySummary("");
+                    } catch (e: any) {
+                      showToast("Reset failed", e.message || String(e));
+                    } finally {
+                      setLoading(false);
+                    }
+                  }}
+                >
+                  Reset
+                </Button>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+                `SELECT`, `WHERE`, `GROUP BY`, `AGG`, `ORDER BY`, `LIMIT`
+              </Typography>
+              {querySummary ? (
+                <Typography variant="caption" sx={{ display: "block", mt: 0.4, color: "var(--accent-2)" }}>
+                  {querySummary}
+                </Typography>
+              ) : null}
+            </Collapse>
+          </Box>
 
           {!schemaMode && (
             <>
-              <Box sx={{ mt: 1.25, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              <Box sx={sectionSx}>
+                <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   Plot mode
                 </Typography>
                 <ToggleButtonGroup
@@ -706,8 +838,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 </ToggleButtonGroup>
               </Box>
 
-              <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              <Box sx={sectionSx}>
+                <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   X axis
                 </Typography>
                 <Stack spacing={0.6}>
@@ -735,8 +867,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 </Stack>
               </Box>
 
-              <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              <Box sx={sectionSx}>
+                <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   Y axis
                 </Typography>
                 <Stack spacing={0.6}>
@@ -765,8 +897,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
               </Box>
 
               {plotMode === "2d" && (
-                <Box sx={{ mt: 1, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+                <Box sx={sectionSx}>
+                  <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                     Z axis
                   </Typography>
                   <Stack spacing={0.6}>
@@ -799,8 +931,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
           {schemaMode && (
             <>
-              <Box sx={{ mt: 1.25, p: 1, border: "1px solid var(--border)", borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
+              <Box sx={sectionSx}>
+                <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   Variables
                 </Typography>
                 <Select size="small" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)} fullWidth>
@@ -828,7 +960,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
           <Box sx={{ mt: 1.25 }}>
             <Typography variant="caption" color="text.secondary">
-              Select axes to explore parameters.
+              {queryActive ? "Showing transformed query results." : "Select axes to explore the dataset."}
             </Typography>
           </Box>
         </Box>

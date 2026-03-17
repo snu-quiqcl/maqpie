@@ -764,6 +764,47 @@ Expected response:
 
 The current frontend expects array-based datasets most often.
 
+### `POST /runs/<rid>/datasets/<dataset_name>/query/`
+
+Used by: `api.queryDataset(rid, dataset_name, body)`
+
+Path parameters:
+
+- `rid`: integer; required
+- `dataset_name`: string; required
+
+Request body:
+
+```json
+{
+  "query": "GROUP BY dummy_row\nAGG avg(row1) AS avg_row1, count_if(row2 > 10) AS hits\nORDER BY dummy_row ASC",
+  "slice": "optional"
+}
+```
+
+Expected response:
+
+```json
+{
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Dataset_101500",
+  "columns": ["dummy_row", "avg_row1", "hits"],
+  "data": [
+    [0, 10.5, 3],
+    [1, 11.25, 4]
+  ],
+  "query": {
+    "text": "GROUP BY dummy_row\nAGG avg(row1) AS avg_row1, count_if(row2 > 10) AS hits\nORDER BY dummy_row ASC",
+    "grouped": true,
+    "aggregated": true,
+    "row_count": 2
+  }
+}
+```
+
+The returned payload is intentionally plot-ready: the frontend consumes it as another `columns + data(rows)` table.
+
 ## Logs
 
 ### `GET /runs/<rid>/logs/`
@@ -980,6 +1021,28 @@ Expected response:
 
 - same shape as run dataset data
 
+### `POST /archives/<archive_id>/datasets/<dataset_name>/query/`
+
+Used by: `api.queryArchivedDataset(archive_id, dataset_name, body)`
+
+Path parameters:
+
+- `archive_id`: integer; required
+- `dataset_name`: string; required
+
+Request body:
+
+```json
+{
+  "query": "SELECT dummy_row, row0\nWHERE row0 > 5\nORDER BY dummy_row ASC",
+  "slice": "optional"
+}
+```
+
+Expected response:
+
+- same shape as run dataset query
+
 ## WebSocket Endpoints
 
 Websocket routes are not under `/api`; they are rooted directly from the server ASGI application.
@@ -1021,7 +1084,7 @@ Expected stream payload:
 }
 ```
 
-### `GET WS /runs/<run_id>/datasets/<dataset_id>/stream/?token=<token>`
+### `GET WS /runs/<run_id>/datasets/<dataset_name>/stream/?token=<token>`
 
 Used by: `DataViewerView`
 
@@ -1029,40 +1092,69 @@ Client message:
 
 ```json
 {
-  "mode": "patch",
+  "mode": "rows",
   "period_ms": 200
 }
 ```
 
-Frontend currently expects either:
+Frontend expects the websocket stream to match the same row-table model as the HTTP dataset endpoint.
+
+Initial snapshot:
 
 ```json
 {
-  "type": "reset"
-}
-```
-
-or:
-
-```json
-{
-  "type": "append",
+  "type": "snapshot",
   "rid": 42,
+  "dataset_id": "ds_3",
   "name": "Dataset_101500",
-  "points": [
-    {
-      "index": 0,
-      "x": 1.0,
-      "y": [1, 2, 3]
-    }
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "data": [
+    [0, 0, 1, 2, 100],
+    [1, 1, 2, 3, 100]
   ],
   "updated_at": "2026-03-17T10:00:00Z"
 }
 ```
 
-Current backend note:
+Append message:
 
-- the present consumer is disabled and returns an error/close rather than real streaming data.
+```json
+{
+  "type": "append",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Dataset_101500",
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "rows": [
+    [2, 2, 3, 4, 100]
+  ],
+  "updated_at": "2026-03-17T10:00:00Z"
+}
+```
+
+Optional reset:
+
+```json
+{
+  "type": "reset",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Dataset_101500"
+}
+```
+
+Optional error:
+
+```json
+{
+  "type": "error",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Dataset_101500",
+  "message": "Dataset not found.",
+  "updated_at": "2026-03-17T10:00:00Z"
+}
+```
 
 ### `GET WS /ttl/status/?token=<token>`
 

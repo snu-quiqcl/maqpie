@@ -546,49 +546,143 @@ This format is the least ambiguous and the most future-proof for the current UI.
 
 ## Streaming Format
 
-Dataset streaming is currently weakly defined in the UI and backend.
+Dataset streaming is now aligned with the same row-table model used by the HTTP data endpoint.
 
-The frontend currently expects websocket messages of the form:
+Preferred websocket route:
 
-### Reset
+- `WS /runs/<rid>/datasets/<dataset_name>/stream/`
+
+The backend should treat websocket delivery as:
+
+- one initial snapshot
+- zero or more append messages
+- optional reset or error messages
+
+The important rule is that websocket and HTTP should describe the same logical table.
+
+### Snapshot
+
+Send the full current table when the websocket connects:
 
 ```json
 {
-  "type": "reset",
+  "type": "snapshot",
   "rid": 42,
-  "name": "Counts"
-}
-```
-
-### Append
-
-```json
-{
-  "type": "append",
-  "rid": 42,
+  "dataset_id": "ds_3",
   "name": "Counts",
-  "points": [
-    {
-      "index": 0,
-      "x": 1.0,
-      "y": [1, 2, 3]
-    }
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "data": [
+    [0, 0, 1, 2, 100],
+    [1, 1, 2, 3, 100],
+    [2, 2, 3, 4, 100]
   ],
   "updated_at": "2026-03-17T10:00:00Z"
 }
 ```
 
+This should match the shape returned by:
+
+- `GET /runs/<rid>/datasets/<dataset_name>/data/?format=json`
+
+### Append
+
+When new rows are saved, send only the newly appended rows:
+
+```json
+{
+  "type": "append",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Counts",
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "rows": [
+    [3, 3, 4, 5, 100],
+    [4, 4, 5, 6, 100]
+  ],
+  "updated_at": "2026-03-17T10:00:02Z"
+}
+```
+
 Current frontend behavior on append:
 
-- converts each point into `[x, y]`
-- appends to local `data`
+- keeps the current `columns`
+- replaces them if the websocket provides an updated `columns` array
+- concatenates `rows` onto the local table
 
-This is not yet aligned with the preferred `columns + row table` model.
+### Reset
 
-So for custom backends:
+If the active dataset is cleared or reinitialized, send:
 
-- snapshot APIs matter most today
-- websocket dataset streaming should be treated as provisional unless you also adapt the frontend
+```json
+{
+  "type": "reset",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Counts"
+}
+```
+
+The frontend clears the local rows on reset.
+
+### Error
+
+If the dataset cannot be streamed, send:
+
+```json
+{
+  "type": "error",
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Counts",
+  "message": "Dataset not found.",
+  "updated_at": "2026-03-17T10:00:00Z"
+}
+```
+
+The frontend displays the message and leaves the current view unchanged.
+
+## Alignment Rule
+
+For custom backends, keep these two payloads logically identical:
+
+1. HTTP snapshot payload
+2. websocket snapshot and append payloads
+
+That means:
+
+- the same `columns`
+- the same row ordering
+- the same interpretation of each value in each column
+
+The websocket should not invent a different data model such as:
+
+- separate `params` and `data`
+- `x` plus nested `y`
+- transposed row blocks for live data only
+
+If the HTTP payload is:
+
+```json
+{
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "data": [
+    [0, 0, 1, 2, 100],
+    [1, 1, 2, 3, 100]
+  ]
+}
+```
+
+then websocket appends should continue that exact table:
+
+```json
+{
+  "type": "append",
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "rows": [
+    [2, 2, 3, 4, 100]
+  ]
+}
+```
 
 ## Practical Rules For Backend Authors
 
@@ -666,3 +760,483 @@ If you are building a custom backend for `iquip-web`, the safest contract is:
 ```
 
 That is the format the current frontend handles most clearly and with the least guesswork.
+
+## Query Language
+
+The Data Viewer also supports a backend query layer for transforming a dataset before plotting.
+
+This is intentionally not raw SQL. The goal is:
+
+- simple enough for users to write
+- easy for the backend to validate
+- expressive enough for filtering, grouping, and aggregation
+
+### Mental model
+
+Think of every dataset as one in-memory table:
+
+- `columns` are the field names
+- each entry in `data` is one row
+
+Example source table:
+
+```json
+{
+  "columns": ["dummy_row", "row0", "row1", "row2"],
+  "data": [
+    [0, 10, 20, 1],
+    [0, 12, 22, 0],
+    [1, 15, 30, 1]
+  ]
+}
+```
+
+You are always querying that one table.
+
+That is why this language has:
+
+- no `FROM`
+- no `JOIN`
+- no multiple-table logic
+
+The dataset itself is the implicit table.
+
+### Execution order
+
+Queries run in this order:
+
+1. `WHERE`
+2. `GROUP BY`
+3. `AGG`
+4. `SELECT`
+5. `ORDER BY`
+6. `LIMIT`
+
+Practical meaning:
+
+- `WHERE` filters raw rows first
+- `GROUP BY` forms groups from the filtered rows
+- `AGG` computes one output row per group
+- `SELECT` is for row-level projection when you are not grouping
+- `ORDER BY` sorts the final result table
+- `LIMIT` trims the final result table
+
+If you are grouping, think in terms of:
+
+- choose group keys with `GROUP BY`
+- choose aggregate outputs with `AGG`
+
+If you are not grouping, think in terms of:
+
+- choose output columns with `SELECT`
+- optionally filter with `WHERE`
+
+### Supported clauses
+
+Each clause goes on its own line:
+
+- `SELECT`
+- `WHERE`
+- `GROUP BY`
+- `AGG`
+- `ORDER BY`
+- `LIMIT`
+
+Example:
+
+```text
+SELECT dummy_row, row0, row1
+WHERE row0 >= 0
+ORDER BY dummy_row ASC
+LIMIT 500
+```
+
+Grouped example:
+
+```text
+GROUP BY dummy_row
+AGG avg(row1) AS avg_row1, count_if(row2 > 10) AS hits
+ORDER BY dummy_row ASC
+```
+
+### What a good query looks like
+
+Use `SELECT` for row-wise transforms:
+
+```text
+SELECT dummy_row, row0, row1, row0 + row1 AS total
+WHERE row2 > 0
+ORDER BY dummy_row ASC
+LIMIT 200
+```
+
+Use `GROUP BY` plus `AGG` for summary plots:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0, max(row1) AS max_row1, count_if(row2 > 0) AS positive_hits
+ORDER BY dummy_row ASC
+```
+
+### Clause meaning
+
+#### `SELECT`
+
+Projects row-level expressions into a new output table.
+
+Use this when you want one output row for each input row.
+
+Examples:
+
+```text
+SELECT dummy_row, row0, row1
+SELECT row0 + row1 AS total, abs(row2) AS magnitude
+```
+
+Input table:
+
+```json
+{
+  "columns": ["dummy_row", "row0", "row1"],
+  "data": [
+    [0, 10, 20],
+    [1, 11, 21]
+  ]
+}
+```
+
+Query:
+
+```text
+SELECT dummy_row, row0 + row1 AS total
+```
+
+Output:
+
+```json
+{
+  "columns": ["dummy_row", "total"],
+  "data": [
+    [0, 30],
+    [1, 32]
+  ]
+}
+```
+
+#### `WHERE`
+
+Filters rows before any grouping.
+
+Examples:
+
+```text
+WHERE row0 > 10
+WHERE row0 > 10 and row1 < 20
+```
+
+Example:
+
+```text
+SELECT dummy_row, row0
+WHERE row0 >= 10 and row1 < 25
+```
+
+This keeps only rows satisfying the boolean condition.
+
+#### `GROUP BY`
+
+Groups rows by one or more expressions.
+
+Use this when you want one output row per group rather than per input row.
+
+Example:
+
+```text
+GROUP BY dummy_row
+```
+
+You can also group by derived expressions:
+
+```text
+GROUP BY round(dummy_row / 10) AS bin
+```
+
+#### `AGG`
+
+Computes aggregate columns for each group.
+
+`AGG` is only meaningful together with `GROUP BY`.
+
+Supported aggregates:
+
+- `sum(expr)`
+- `avg(expr)`
+- `min(expr)`
+- `max(expr)`
+- `count()`
+- `count_if(condition)`
+- `first(expr)`
+- `last(expr)`
+
+Example:
+
+```text
+AGG avg(row1) AS avg_row1, count_if(row2 > 5) AS hits
+```
+
+Input table:
+
+```json
+{
+  "columns": ["dummy_row", "row0"],
+  "data": [
+    [0, 10],
+    [0, 20],
+    [1, 30]
+  ]
+}
+```
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0, count() AS n
+ORDER BY dummy_row ASC
+```
+
+Output:
+
+```json
+{
+  "columns": ["dummy_row", "avg_row0", "n"],
+  "data": [
+    [0, 15.0, 2],
+    [1, 30.0, 1]
+  ]
+}
+```
+
+#### `ORDER BY`
+
+Sorts the output table by result columns.
+
+`ORDER BY` applies to the final result table, not the raw dataset.
+
+Example:
+
+```text
+ORDER BY dummy_row ASC
+ORDER BY avg_row1 DESC
+```
+
+#### `LIMIT`
+
+Restricts the number of output rows.
+
+Example:
+
+```text
+LIMIT 200
+```
+
+### Expression support
+
+Expressions support:
+
+- column names
+- numeric constants
+- arithmetic: `+`, `-`, `*`, `/`, `%`, `**`
+- comparisons: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- boolean logic: `and`, `or`, `not`
+- parentheses
+- simple safe functions:
+  - `abs(x)`
+  - `round(x, n)`
+  - `min(a, b)`
+  - `max(a, b)`
+
+This is meant to cover plotting workflows without exposing arbitrary backend code execution.
+
+### Valid examples
+
+Simple projection:
+
+```text
+SELECT row0, row1
+```
+
+Derived field:
+
+```text
+SELECT dummy_row, row0 + row1 AS total
+```
+
+Filter plus projection:
+
+```text
+SELECT dummy_row, row0
+WHERE row0 > 5
+ORDER BY dummy_row ASC
+```
+
+Grouped average:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+ORDER BY dummy_row ASC
+```
+
+Threshold counting:
+
+```text
+GROUP BY dummy_row
+AGG count_if(row2 > 10) AS hits
+ORDER BY dummy_row ASC
+```
+
+First and last values:
+
+```text
+GROUP BY dummy_row
+AGG first(row0) AS first_row0, last(row0) AS last_row0
+```
+
+### Invalid examples
+
+This is not SQL, so these are intentionally unsupported:
+
+```text
+SELECT * FROM dataset
+```
+
+Reason:
+
+- no `FROM`
+- no `*`
+
+This is also invalid:
+
+```text
+SELECT avg(row0)
+```
+
+Reason:
+
+- aggregate functions belong in `AGG`, not `SELECT`
+
+Use:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+```
+
+This is also invalid:
+
+```text
+HAVING avg(row0) > 10
+```
+
+Reason:
+
+- `HAVING` is not part of the language
+
+If you need post-aggregation filtering later, that should be added explicitly as a new clause rather than inferred from SQL expectations.
+
+### Comparison to SQL
+
+The language is deliberately SQL-shaped, but not SQL-complete.
+
+SQL:
+
+```sql
+SELECT dummy_row, AVG(row0) AS avg_row0
+FROM dataset
+WHERE row1 > 0
+GROUP BY dummy_row
+ORDER BY dummy_row ASC
+LIMIT 100;
+```
+
+Equivalent query here:
+
+```text
+WHERE row1 > 0
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+ORDER BY dummy_row ASC
+LIMIT 100
+```
+
+Key differences from SQL:
+
+- no `FROM`
+- no `JOIN`
+- no subqueries
+- no `HAVING`
+- no window functions
+- no write operations
+- aggregate expressions belong in `AGG`
+
+That smaller surface area is intentional. It keeps the language easy to validate and easy to map to plot-ready tables.
+
+### Best practices for users
+
+- start by checking the dataset `columns`
+- use `SELECT` when you want row-by-row plotting
+- use `GROUP BY` plus `AGG` when you want summaries
+- keep aliases simple and descriptive
+- use `ORDER BY` explicitly if plotting order matters
+- use `LIMIT` when exploring large datasets
+
+Good aliases:
+
+```text
+AGG avg(row0) AS avg_row0, count_if(row1 > 5) AS hits
+```
+
+Less good:
+
+```text
+AGG avg(row0) AS a, count_if(row1 > 5) AS b
+```
+
+### Query endpoint pattern
+
+Recommended API shape:
+
+- `POST /runs/<rid>/datasets/<dataset_name>/query/`
+- `POST /archives/<archive_id>/datasets/<dataset_name>/query/`
+
+Request:
+
+```json
+{
+  "query": "GROUP BY dummy_row\nAGG avg(row1) AS avg_row1\nORDER BY dummy_row ASC"
+}
+```
+
+Response:
+
+```json
+{
+  "rid": 42,
+  "dataset_id": "ds_3",
+  "name": "Counts",
+  "columns": ["dummy_row", "avg_row1"],
+  "data": [
+    [0, 10.5],
+    [1, 11.25]
+  ],
+  "query": {
+    "text": "GROUP BY dummy_row\nAGG avg(row1) AS avg_row1\nORDER BY dummy_row ASC",
+    "grouped": true,
+    "aggregated": true,
+    "row_count": 2
+  }
+}
+```
+
+The query result is still just another `columns + rows` table, which is why it integrates cleanly with the rest of the viewer.

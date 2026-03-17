@@ -117,7 +117,23 @@ export type DatasetDataResp = {
   archive_id?: number;
   dataset_id?: string;
   name: string;
+  columns?: string[];
   data: unknown;
+};
+
+export type DatasetQueryResp = {
+  rid?: number;
+  archive_id?: number;
+  dataset_id?: string;
+  name: string;
+  columns: string[];
+  data: unknown[][];
+  query?: {
+    text: string;
+    grouped: boolean;
+    aggregated: boolean;
+    row_count: number;
+  };
 };
 
 export type LogItem = { seq: number; ts: string; level: string; msg: string };
