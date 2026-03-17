@@ -1,19 +1,27 @@
 export type RunStatus = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED" | "ABORTED";
-export type Priority = 1 | 2 | 3 | 4;
+export type Priority = number;
 export type ScheduleType = "NOW" | "TIMED" | "RECURRING";
 export type FileType = "script" | "fpga";
+export type RecurrenceKind = "interval" | "daily" | "weekly";
+
+export type RecurrenceRule = {
+  kind: RecurrenceKind;
+  timezone?: string | null;
+  interval_min?: number | null;
+  start_immediately?: boolean;
+  start_at?: string | null;
+  time?: string | null;
+  every_n_days?: number | null;
+  weekdays?: number[];
+  every_n_weeks?: number | null;
+  start_date?: string | null;
+};
 
 export type FileItem = {
   name: string;
   kind: "file" | "dir";
   size: number | null;
   modified_at: string;
-};
-
-export type ScriptInspectResp = {
-  path: string;
-  experiment_name: string;
-  parameters_schema: Record<string, ParamSchema>;
 };
 
 export type ParamSchema =
@@ -48,6 +56,8 @@ export type PanelResp = {
       schedule_type: ScheduleType;
       scheduled_at: string | null;
       interval_min: number | null;
+      timezone?: string | null;
+      recurrence?: RecurrenceRule | null;
     };
   };
 };
@@ -62,6 +72,10 @@ export type RunListItem = {
   schedule_type: ScheduleType;
   scheduled_at: string | null;
   interval_min: number | null;
+  schedule_id?: string | null;
+  schedule_status?: string | null;
+  recurrence?: RecurrenceRule | null;
+  recurrence_summary?: string | null;
   status: RunStatus;
   created_at: string;
   started_at: string | null;

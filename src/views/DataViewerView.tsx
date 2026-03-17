@@ -19,6 +19,7 @@ import {
   Divider,
 } from "@mui/material";
 import Plot from "react-plotly.js";
+import type { Data as PlotData } from "plotly.js";
 import { api, wsUrl } from "../lib/api";
 import { useAppStore } from "../state/store";
 
@@ -128,6 +129,22 @@ function aggregate(values: number[], mode: AggMode, threshold: number): number |
   if (mode === "sum") return values.reduce((a, b) => a + b, 0);
   if (mode === "average") return values.reduce((a, b) => a + b, 0) / values.length;
   if (mode === "threshold") return values.filter((v) => v > threshold).length;
+  return null;
+}
+
+function extractScalarValue(raw: unknown): number | null {
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (Array.isArray(raw) && raw.length === 1) {
+    return extractScalarValue(raw[0]);
+  }
+  if (raw && typeof raw === "object") {
+    const value = (raw as Record<string, unknown>).value;
+    return extractScalarValue(value);
+  }
   return null;
 }
 
@@ -300,6 +317,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     return [];
   }, [meta, schemaDataAxes, inferredMatrixShape]);
   const schemaMode = columns.length === 0 && schemaDataAxesEffective.length > 0;
+  const explicitDatasetType = String(meta?.metadata?.dataset_type ?? meta?.hints?.dataset_type ?? "").toLowerCase();
+  const scalarValue = useMemo(() => extractScalarValue(data), [data]);
+  const scalarMode = explicitDatasetType === "scalar" || (columns.length === 0 && scalarValue !== null);
 
   useEffect(() => {
     const varOpts = schemaParamAxes.length > 0 ? schemaParamAxes : ["index"];
@@ -377,6 +397,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   }, [rid, ridValid, selected, streaming, showToast, archiveMode]);
 
   const fieldOptions = useMemo(() => {
+    if (scalarMode) return ["value"];
     if (columns.length > 0) return columns;
     const base: string[] = ["index"];
     if (!data || data.length === 0) {
@@ -391,7 +412,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       : ["value"];
     const metaFields = meta?.parameters ? Object.keys(meta.parameters) : [];
     return Array.from(new Set([...base, ...dataFields, ...metaFields]));
-  }, [data, meta, columns]);
+  }, [data, meta, columns, scalarMode]);
 
   useEffect(() => {
     if (fieldOptions.length === 0) return;
@@ -403,7 +424,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     if (!zAggField || !fieldOptions.includes(zAggField)) setZAggField(fieldOptions[0]);
   }, [fieldOptions, xField, yField, zField]);
 
-  const plotTrace = useMemo(() => {
+  const plotTrace = useMemo<PlotData[]>(() => {
     if (!data || data.length === 0) return [];
 
     if (schemaMode) {
@@ -434,8 +455,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         {
           x,
           y,
-          type: "scattergl",
-          mode: "lines+markers",
+          type: "scattergl" as const,
+          mode: "lines+markers" as const,
           marker: { size: 4, color: "#6cb6ff" },
           line: { width: 1.5, color: "#6cb6ff" },
           name: label || "data",
@@ -512,8 +533,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         {
           x,
           y,
-          type: "scattergl",
-          mode: "lines+markers",
+          type: "scattergl" as const,
+          mode: "lines+markers" as const,
           marker: { size: 4, color: "#6cb6ff" },
           line: { width: 1.5, color: "#6cb6ff" },
         },
@@ -524,8 +545,8 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       {
         x,
         y,
-        type: "scattergl",
-        mode: "markers",
+        type: "scattergl" as const,
+        mode: "markers" as const,
         marker: {
           size: 6,
           color: z,
@@ -546,6 +567,47 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
           Select a run (rid) from the Experiment Manager, then open a Data Viewer tab for that run.
         </Typography>
+      </Paper>
+    );
+  }
+
+  if (scalarMode) {
+    return (
+      <Paper variant="outlined" sx={{ p: 1.25 }}>
+        <Stack spacing={1}>
+          <Box>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {selected || meta?.name || "Scalar dataset"}
+            </Typography>
+          </Box>
+          <Box
+            sx={{
+              minHeight: 140,
+              display: "grid",
+              placeItems: "center",
+              border: "1px solid var(--border)",
+              borderRadius: 1,
+              background: "color-mix(in srgb, var(--panel2) 78%, transparent)",
+            }}
+          >
+            <Stack spacing={0.75} alignItems="center">
+              <Typography variant="caption" color="text.secondary">
+                Scalar value
+              </Typography>
+              <Typography sx={{ fontSize: 44, fontWeight: 800, lineHeight: 1, fontFamily: "var(--mono)" }}>
+                {scalarValue !== null ? String(scalarValue) : "-"}
+              </Typography>
+              {meta?.units && typeof meta.units.value === "string" ? (
+                <Typography variant="caption" color="text.secondary">
+                  {meta.units.value}
+                </Typography>
+              ) : null}
+            </Stack>
+          </Box>
+        </Stack>
       </Paper>
     );
   }

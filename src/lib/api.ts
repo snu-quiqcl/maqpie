@@ -14,8 +14,6 @@ import type {
   PanelConfigUpdateResp,
   PanelResp,
   RunDetailResp,
-  RunsListResp,
-  ScriptInspectResp,
   RunListItem,
   RunStatus,
   Priority,
@@ -125,18 +123,15 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 function normalizePriority(p?: number | string): Priority {
   if (typeof p === "number") {
-    if (p >= 1 && p <= 4) return p as Priority;
+    if (Number.isFinite(p)) return p as Priority;
   }
   if (typeof p === "string") {
-    if (/^\d+$/.test(p)) {
+    if (/^-?\d+$/.test(p.trim())) {
       const n = Number(p);
-      if (n >= 1 && n <= 4) return n as Priority;
+      if (Number.isFinite(n)) return n as Priority;
     }
-    const map: Record<string, Priority> = { LOW: 1, NORMAL: 2, HIGH: 3, CRITICAL: 4 };
-    const v = map[p.toUpperCase()];
-    if (v) return v;
   }
-  return 2;
+  return 0;
 }
 
 function normalizeStatus(s?: string): RunStatus {
@@ -163,6 +158,10 @@ export function normalizeRun(raw: any): RunDetailResp {
     schedule_type: raw?.schedule_type ?? "NOW",
     scheduled_at: raw?.scheduled_at ?? null,
     interval_min: raw?.interval_min ?? null,
+    schedule_id: raw?.schedule_id ?? null,
+    schedule_status: raw?.schedule_status ?? null,
+    recurrence: raw?.recurrence ?? null,
+    recurrence_summary: raw?.recurrence_summary ?? null,
     status: normalizeStatus(raw?.status),
     created_at: raw?.created_at ?? "",
     started_at: raw?.started_at ?? null,
@@ -207,10 +206,6 @@ export const api = {
     return request<{ path: string; content: string }>(`/files/read/?${qs}`);
   },
 
-  // Scripts
-  inspectScript: (path: string) =>
-    request<ScriptInspectResp>("/scripts/inspect/", { method: "POST", body: JSON.stringify({ path }) }),
-
   // Panels
   createPanel: (req: PanelCreateReq) =>
     request<PanelResp>("/panels/", { method: "POST", body: JSON.stringify(req) }),
@@ -240,7 +235,14 @@ export const api = {
       mode?: "overwrite";
       fields?: string[];
       param_values?: Record<string, unknown>;
-      queue_defaults?: { priority?: number; schedule_type?: string; scheduled_at?: string | null; interval_min?: number | null };
+      queue_defaults?: {
+        priority?: number;
+        schedule_type?: string;
+        scheduled_at?: string | null;
+        interval_min?: number | null;
+        timezone?: string | null;
+        recurrence?: Record<string, unknown> | null;
+      };
     }
   ) =>
     request<PanelConfigUpdateResp>(`/panel-configs/${config_id}/apply-panel/`, { method: "POST", body: JSON.stringify(body) }),
@@ -252,18 +254,6 @@ export const api = {
     request<PanelResp>("/panels/from-config/", { method: "POST", body: JSON.stringify({ config_id }) }),
 
   // Runs
-  listRuns: async (query?: Record<string, string>): Promise<RunsListResp> => {
-    const qs = query ? `?${new URLSearchParams(query).toString()}` : "";
-    const resp = await request<unknown>(`/runs/${qs}`);
-    if (Array.isArray(resp)) {
-      return { items: resp.map(normalizeRun), next_cursor: null };
-    }
-    if (resp && typeof resp === "object") {
-      const items = Array.isArray((resp as any).items) ? (resp as any).items.map(normalizeRun) : [];
-      return { items, next_cursor: (resp as any).next_cursor ?? null };
-    }
-    return { items: [], next_cursor: null };
-  },
   createRun: async (body: Record<string, unknown>) => {
     const payload: Record<string, unknown> = { ...body };
     if (payload.param_values && !payload.arguments) payload.arguments = payload.param_values;
@@ -281,6 +271,9 @@ export const api = {
       "schedule_type",
       "scheduled_at",
       "interval_min",
+      "timezone",
+      "recurrence",
+      "name",
     ]);
     for (const k of Object.keys(payload)) {
       if (!allowedKeys.has(k)) delete payload[k];

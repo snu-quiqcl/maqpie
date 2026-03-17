@@ -325,8 +325,11 @@ export default function RunsManagerView() {
           {infoTarget?.schedule_type === "TIMED" && infoTarget?.scheduled_at ? (
             <Typography variant="caption">Scheduled at: {new Date(infoTarget.scheduled_at).toLocaleString()}</Typography>
           ) : null}
-          {infoTarget?.schedule_type === "RECURRING" && infoTarget?.interval_min ? (
-            <Typography variant="caption">Interval: every {infoTarget.interval_min} min</Typography>
+          {infoTarget?.schedule_type === "RECURRING" && infoTarget?.recurrence_summary ? (
+            <Typography variant="caption">Pattern: {infoTarget.recurrence_summary}</Typography>
+          ) : null}
+          {infoTarget?.schedule_id ? (
+            <Typography variant="caption">Schedule id: {infoTarget.schedule_id} ({infoTarget.schedule_status ?? "unknown"})</Typography>
           ) : null}
           <Typography variant="caption">Tags: {(infoTarget?.tags ?? []).join(", ") || "-"}</Typography>
           <Typography variant="caption">Started: {infoTarget?.started_at ? new Date(infoTarget.started_at).toLocaleString() : "-"}</Typography>

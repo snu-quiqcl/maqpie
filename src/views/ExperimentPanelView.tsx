@@ -29,13 +29,65 @@ type PanelDTO = {
       schedule_type?: "NOW" | "TIMED" | "RECURRING";
       scheduled_at?: string | null;
       interval_min?: number | null;
+      timezone?: string | null;
+      recurrence?: {
+        kind?: "interval" | "daily" | "weekly";
+        interval_min?: number | null;
+        start_immediately?: boolean;
+        start_at?: string | null;
+        time?: string | null;
+        every_n_days?: number | null;
+        weekdays?: number[];
+        every_n_weeks?: number | null;
+        start_date?: string | null;
+      } | null;
     };
   };
 };
 
-type Priority = 1 | 2 | 3 | 4;
+type Priority = number;
 type ScheduleType = "NOW" | "TIMED" | "RECURRING";
+type RecurrenceKind = "interval" | "daily" | "weekly";
 type FloatRangeState = { enabled: boolean; start: string; end: string; step: string };
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+function detectBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+function toLocalDateTimeInput(v?: string | null) {
+  if (!v) return "";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function summarizeSchedule(
+  scheduleType: ScheduleType,
+  opts: {
+    scheduledAt: string;
+    timezone: string;
+    recurrenceKind: RecurrenceKind;
+    intervalMin: string;
+    dailyTime: string;
+    dailyEvery: string;
+    weeklyTime: string;
+    weeklyEvery: string;
+    weeklyDays: number[];
+  }
+) {
+  if (scheduleType === "NOW") return "NOW";
+  if (scheduleType === "TIMED") return opts.scheduledAt ? `TIMED · ${opts.scheduledAt} (${opts.timezone})` : "TIMED";
+  if (opts.recurrenceKind === "interval") return `RECURRING · every ${opts.intervalMin || "?"} min`;
+  if (opts.recurrenceKind === "daily") return `RECURRING · every ${opts.dailyEvery || "1"} day(s) at ${opts.dailyTime || "--:--"}`;
+  const labels = opts.weeklyDays.map((day) => WEEKDAY_LABELS[day]).join(", ");
+  return `RECURRING · every ${opts.weeklyEvery || "1"} week(s) on ${labels || "?"} at ${opts.weeklyTime || "--:--"}`;
+}
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
@@ -91,6 +143,15 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
   const [scheduleType, setScheduleType] = useState<ScheduleType>("NOW");
   const [scheduledAt, setScheduledAt] = useState<string>("");
   const [intervalMin, setIntervalMin] = useState<string>("");
+  const [scheduleTimezone, setScheduleTimezone] = useState<string>(detectBrowserTimezone());
+  const [recurrenceKind, setRecurrenceKind] = useState<RecurrenceKind>("interval");
+  const [recurrenceStartImmediately, setRecurrenceStartImmediately] = useState(true);
+  const [recurrenceStartAt, setRecurrenceStartAt] = useState<string>("");
+  const [dailyTime, setDailyTime] = useState<string>("09:00");
+  const [dailyEvery, setDailyEvery] = useState<string>("1");
+  const [weeklyTime, setWeeklyTime] = useState<string>("09:00");
+  const [weeklyEvery, setWeeklyEvery] = useState<string>("1");
+  const [weeklyDays, setWeeklyDays] = useState<number[]>([0]);
 
   // single-run parameter form
   const [paramInputs, setParamInputs] = useState<Record<string, string>>({});
@@ -114,8 +175,23 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
         const defaults = p.panel?.schedule_defaults;
         if (typeof defaults?.priority === "number") setPriority(defaults.priority as Priority);
         if (defaults?.schedule_type) setScheduleType(defaults.schedule_type);
-        if (defaults?.scheduled_at) setScheduledAt(defaults.scheduled_at);
+        if (defaults?.scheduled_at) setScheduledAt(toLocalDateTimeInput(defaults.scheduled_at));
         if (defaults?.interval_min != null) setIntervalMin(String(defaults.interval_min));
+        if (defaults?.timezone) setScheduleTimezone(defaults.timezone);
+        if (defaults?.recurrence) {
+          const recurrence = defaults.recurrence;
+          if (recurrence.kind === "interval" || recurrence.kind === "daily" || recurrence.kind === "weekly") {
+            setRecurrenceKind(recurrence.kind);
+          }
+          if (recurrence.interval_min != null) setIntervalMin(String(recurrence.interval_min));
+          if (typeof recurrence.start_immediately === "boolean") setRecurrenceStartImmediately(recurrence.start_immediately);
+          if (recurrence.start_at) setRecurrenceStartAt(toLocalDateTimeInput(recurrence.start_at));
+          if (recurrence.time && recurrence.kind === "daily") setDailyTime(recurrence.time.slice(0, 5));
+          if (recurrence.time && recurrence.kind === "weekly") setWeeklyTime(recurrence.time.slice(0, 5));
+          if (recurrence.every_n_days != null) setDailyEvery(String(recurrence.every_n_days));
+          if (Array.isArray(recurrence.weekdays) && recurrence.weekdays.length) setWeeklyDays(recurrence.weekdays);
+          if (recurrence.every_n_weeks != null) setWeeklyEvery(String(recurrence.every_n_weeks));
+        }
 
         // Param inputs: start from param_values, fallback to schema defaults
         const init: Record<string, string> = {};
@@ -221,16 +297,82 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
       .filter((x) => x.length > 0);
   }
 
+  function buildQueueDefaults() {
+    return {
+      priority,
+      schedule_type: scheduleType,
+      scheduled_at: scheduleType === "TIMED" ? (scheduledAt || null) : null,
+      interval_min: scheduleType === "RECURRING" && recurrenceKind === "interval" ? (intervalMin ? Number(intervalMin) : null) : null,
+      timezone: scheduleTimezone,
+      recurrence:
+        scheduleType !== "RECURRING"
+          ? null
+          : recurrenceKind === "interval"
+            ? {
+                kind: "interval",
+                interval_min: intervalMin ? Number(intervalMin) : null,
+                start_immediately: recurrenceStartImmediately,
+                start_at: recurrenceStartImmediately ? null : (recurrenceStartAt || null),
+                timezone: scheduleTimezone,
+              }
+            : recurrenceKind === "daily"
+              ? {
+                  kind: "daily",
+                  time: dailyTime || null,
+                  every_n_days: dailyEvery ? Number(dailyEvery) : 1,
+                  timezone: scheduleTimezone,
+                }
+              : {
+                  kind: "weekly",
+                  time: weeklyTime || null,
+                  every_n_weeks: weeklyEvery ? Number(weeklyEvery) : 1,
+                  weekdays: weeklyDays,
+                  timezone: scheduleTimezone,
+                },
+    };
+  }
+
   async function createOneRun(paramValuesOverride?: Record<string, any>) {
     if (!panel) return;
+
+    let recurrence: Record<string, unknown> | null = null;
+    if (scheduleType === "RECURRING") {
+      if (recurrenceKind === "interval") {
+        recurrence = {
+          kind: "interval",
+          interval_min: intervalMin ? Number(intervalMin) : null,
+          start_immediately: recurrenceStartImmediately,
+          start_at: recurrenceStartImmediately ? null : (recurrenceStartAt || null),
+          timezone: scheduleTimezone,
+        };
+      } else if (recurrenceKind === "daily") {
+        recurrence = {
+          kind: "daily",
+          time: dailyTime || null,
+          every_n_days: dailyEvery ? Number(dailyEvery) : 1,
+          timezone: scheduleTimezone,
+        };
+      } else {
+        recurrence = {
+          kind: "weekly",
+          time: weeklyTime || null,
+          every_n_weeks: weeklyEvery ? Number(weeklyEvery) : 1,
+          weekdays: weeklyDays,
+          timezone: scheduleTimezone,
+        };
+      }
+    }
 
     const payload: any = {
       panel_id: panel.panel_id ?? panelId,
       script_path: panel.script_path,
+      name: panel.name,
       priority,
       schedule_type: scheduleType,
       scheduled_at: scheduleType === "TIMED" ? (scheduledAt || null) : null,
-      interval_min: scheduleType === "RECURRING" ? (intervalMin ? Number(intervalMin) : null) : null,
+      interval_min: scheduleType === "RECURRING" && recurrenceKind === "interval" ? (intervalMin ? Number(intervalMin) : null) : null,
+      timezone: scheduleTimezone,
+      recurrence,
       refresh_dataset: true,
     };
 
@@ -245,7 +387,10 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
   async function syncPanelParams(paramValues: Record<string, any>) {
     if (!panel) return;
     try {
-      const updated = await api.updatePanel(panel.panel_id ?? panelId, { param_values: paramValues });
+      const updated = await api.updatePanel(panel.panel_id ?? panelId, {
+        param_values: paramValues,
+        schedule_defaults: buildQueueDefaults(),
+      } as any);
       setPanel(updated);
     } catch (e: any) {
       // Non-fatal: run/config can still proceed even if panel update fails.
@@ -263,9 +408,14 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
       await syncPanelParams(baseParamValues);
       const resp: any = await createOneRun(baseParamValues);
 
-      // If backend returns rid, open run viewer
-      if (resp?.rid) openDataViewer(resp.rid);
-      showToast("Run queued", `Run created for ${panel.name}`);
+      if (scheduleType === "NOW" && resp?.rid) {
+        openDataViewer(resp.rid);
+        showToast("Run queued", `Run created for ${panel.name}`);
+      } else if (scheduleType === "TIMED") {
+        showToast("Timed run scheduled", `rid=${resp?.rid ?? "-"} · ${scheduledAt || "-"}`);
+      } else {
+        showToast("Recurring schedule created", `rid=${resp?.rid ?? "-"}${resp?.schedule_id ? ` · ${resp.schedule_id}` : ""}`);
+      }
     } catch (e: any) {
       showToast("Launch failed", e.message || String(e));
     } finally {
@@ -298,12 +448,7 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
     if (!panel?.config_id) return;
     try {
       const param_values = buildParamValues(paramInputs) ?? {};
-      const queue_defaults = {
-        priority,
-        schedule_type: scheduleType,
-        scheduled_at: scheduleType === "TIMED" ? (scheduledAt || null) : null,
-        interval_min: scheduleType === "RECURRING" ? (intervalMin ? Number(intervalMin) : null) : null,
-      };
+      const queue_defaults = buildQueueDefaults();
       await syncPanelParams(param_values);
       const resp = await api.updatePanelConfigFromPanel(panel.config_id, {
         panel_id: panel.panel_id ?? panelId,
@@ -379,9 +524,17 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
                 Queue Run
               </Button>
               <Typography variant="caption" color="text.secondary">
-                {scheduleType === "NOW" ? "NOW" : scheduleType}
-                {scheduleType === "TIMED" && scheduledAt ? ` · ${scheduledAt}` : ""}
-                {scheduleType === "RECURRING" && intervalMin ? ` · every ${intervalMin} min` : ""}
+                {summarizeSchedule(scheduleType, {
+                  scheduledAt,
+                  timezone: scheduleTimezone,
+                  recurrenceKind,
+                  intervalMin,
+                  dailyTime,
+                  dailyEvery,
+                  weeklyTime,
+                  weeklyEvery,
+                  weeklyDays,
+                })}
               </Typography>
             </Stack>
           </Stack>
@@ -487,12 +640,14 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
           <Stack spacing={0.5}>
             <Stack direction="row" spacing={0.5} alignItems="center">
               <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Priority</Typography>
-              <Select size="small" value={priority} onChange={(e) => setPriority(Number(e.target.value) as Priority)}>
-                <MenuItem value={4}>Critical</MenuItem>
-                <MenuItem value={3}>High</MenuItem>
-                <MenuItem value={2}>Normal</MenuItem>
-                <MenuItem value={1}>Low</MenuItem>
-              </Select>
+              <TextField
+                size="small"
+                type="number"
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
+                inputProps={{ step: 1 }}
+                sx={{ width: 112 }}
+              />
             </Stack>
 
             <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
@@ -507,22 +662,98 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
                   size="small"
                   value={scheduledAt}
                   onChange={(e) => setScheduledAt(e.target.value)}
-                  placeholder="ISO timestamp, e.g. 2025-12-31T09:00:00Z"
+                  type="datetime-local"
                   sx={{ width: 205 }}
                 />
               )}
-              {scheduleType === "RECURRING" && (
-                <TextField
-                  size="small"
-                  value={intervalMin}
-                  onChange={(e) => setIntervalMin(e.target.value)}
-                  type="number"
-                  inputProps={{ step: 1, min: 1 }}
-                  placeholder="interval (min)"
-                  sx={{ width: 108 }}
-                />
-              )}
             </Stack>
+            {scheduleType !== "NOW" ? (
+              <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Timezone</Typography>
+                <TextField size="small" value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} sx={{ width: 160 }} />
+              </Stack>
+            ) : null}
+            {scheduleType === "RECURRING" ? (
+              <>
+                <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                  <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Pattern</Typography>
+                  <Select size="small" value={recurrenceKind} onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}>
+                    <MenuItem value="interval">Interval</MenuItem>
+                    <MenuItem value="daily">Daily</MenuItem>
+                    <MenuItem value="weekly">Weekly</MenuItem>
+                  </Select>
+                </Stack>
+                {recurrenceKind === "interval" ? (
+                  <>
+                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Every</Typography>
+                      <TextField
+                        size="small"
+                        value={intervalMin}
+                        onChange={(e) => setIntervalMin(e.target.value)}
+                        type="number"
+                        inputProps={{ step: 1, min: 1 }}
+                        placeholder="minutes"
+                        sx={{ width: 108 }}
+                      />
+                      <Typography variant="caption" color="text.secondary">minutes</Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Start</Typography>
+                      <Button size="small" variant={recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(true)}>
+                        Now
+                      </Button>
+                      <Button size="small" variant={!recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(false)}>
+                        Later
+                      </Button>
+                      {!recurrenceStartImmediately ? (
+                        <TextField size="small" type="datetime-local" value={recurrenceStartAt} onChange={(e) => setRecurrenceStartAt(e.target.value)} sx={{ width: 205 }} />
+                      ) : null}
+                    </Stack>
+                  </>
+                ) : null}
+                {recurrenceKind === "daily" ? (
+                  <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                    <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Daily</Typography>
+                    <TextField size="small" type="time" value={dailyTime} onChange={(e) => setDailyTime(e.target.value)} sx={{ width: 112 }} />
+                    <Typography variant="caption" color="text.secondary">every</Typography>
+                    <TextField size="small" type="number" value={dailyEvery} onChange={(e) => setDailyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: 72 }} />
+                    <Typography variant="caption" color="text.secondary">day(s)</Typography>
+                  </Stack>
+                ) : null}
+                {recurrenceKind === "weekly" ? (
+                  <>
+                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Weekly</Typography>
+                      <TextField size="small" type="time" value={weeklyTime} onChange={(e) => setWeeklyTime(e.target.value)} sx={{ width: 112 }} />
+                      <Typography variant="caption" color="text.secondary">every</Typography>
+                      <TextField size="small" type="number" value={weeklyEvery} onChange={(e) => setWeeklyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: 72 }} />
+                      <Typography variant="caption" color="text.secondary">week(s)</Typography>
+                    </Stack>
+                    <Stack direction="row" spacing={0.4} alignItems="center" flexWrap="wrap">
+                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Days</Typography>
+                      {WEEKDAY_LABELS.map((label, day) => {
+                        const active = weeklyDays.includes(day);
+                        return (
+                          <Button
+                            key={label}
+                            size="small"
+                            variant={active ? "contained" : "outlined"}
+                            onClick={() =>
+                              setWeeklyDays((prev) =>
+                                prev.includes(day) ? prev.filter((v) => v !== day) : [...prev, day].sort((a, b) => a - b)
+                              )
+                            }
+                          >
+                            {label}
+                          </Button>
+                        );
+                      })}
+                    </Stack>
+                  </>
+                ) : null}
+              </>
+            ) : null}
 
           </Stack>
 
