@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createWindowFrame } from "../lib/windowFrame";
 import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api, normalizeRun, wsUrl } from "../lib/api";
 import type { RunListItem, RunStatus } from "../lib/types";
@@ -97,12 +98,13 @@ export default function RunsManagerView() {
     if (target) {
       addTabToWindow(target.windowId, tab, true);
     } else {
+      const frame = createWindowFrame("dataViewer");
       const win = {
         windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
-        x: 160,
-        y: 120,
-        w: 700,
-        h: 500,
+        x: frame.x,
+        y: frame.y,
+        w: frame.w,
+        h: frame.h,
         locked: false,
         tabs: [tab],
         activeTabId: tab.tabId,
@@ -144,12 +146,24 @@ export default function RunsManagerView() {
       fontWeight: 700,
       letterSpacing: 0.3,
       textTransform: "uppercase",
-      color: "text.secondary",
+      color: "var(--text)",
+      backgroundColor: "var(--panel2)",
+      borderBottomColor: "var(--border)",
     },
   };
 
   return (
-    <Paper variant="outlined" sx={{ p: 1 }}>
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1,
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       <Stack direction="row" alignItems="center" spacing={0.75} justifyContent="space-between">
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Current Runs</Typography>
@@ -197,60 +211,65 @@ export default function RunsManagerView() {
             value={tagQuery}
             onChange={(e) => setTagQuery(e.target.value)}
             placeholder="calib"
-            sx={{ minWidth: 130 }}
+            sx={{
+              minWidth: 130,
+              "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+            }}
           />
         </Stack>
       </Box>
 
-      <Table size="small" sx={compactTableSx}>
-        <TableHead>
-          <TableRow>
-            <TableCell>Status</TableCell>
-            <TableCell>Experiment</TableCell>
-            <TableCell>Script</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {items.map((r) => (
-            <TableRow
-              key={r.rid}
-              hover
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextTarget(r);
-                setContextAnchor({ x: e.clientX, y: e.clientY });
-              }}
-            >
-              <TableCell>
-                <Chip
-                  size="small"
-                  label={r.status}
-                  color={statusColor(r.status)}
-                  variant="outlined"
-                  sx={{ height: 20, "& .MuiChip-label": { px: 0.7, fontSize: 11 } }}
-                />
-              </TableCell>
-              <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{r.name}</Typography>
-              </TableCell>
-              <TableCell>
-                <Typography variant="caption" sx={{ fontFamily: "var(--mono)", fontSize: 11 }}>{r.script_path}</Typography>
-                {panelOpenConfig.enableClassSelection && r.class_name ? (
-                  <Typography variant="caption" color="text.secondary" display="block">{r.class_name}</Typography>
-                ) : null}
-              </TableCell>
-            </TableRow>
-          ))}
-          {items.length === 0 && (
+      <Box sx={{ mt: 0.5, flex: 1, minHeight: 0, overflow: "auto" }}>
+        <Table size="small" stickyHeader sx={compactTableSx}>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={3} sx={{ color: "text.secondary" }}>
-                No runs.
-              </TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Experiment</TableCell>
+              <TableCell>Script</TableCell>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
+          </TableHead>
+          <TableBody>
+            {items.map((r) => (
+              <TableRow
+                key={r.rid}
+                hover
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextTarget(r);
+                  setContextAnchor({ x: e.clientX, y: e.clientY });
+                }}
+              >
+                <TableCell>
+                  <Chip
+                    size="small"
+                    label={r.status}
+                    color={statusColor(r.status)}
+                    variant="outlined"
+                    sx={{ height: 20, "& .MuiChip-label": { px: 0.7, fontSize: 11 } }}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{r.name}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption" sx={{ fontFamily: "var(--mono)", fontSize: 11 }}>{r.script_path}</Typography>
+                  {panelOpenConfig.enableClassSelection && r.class_name ? (
+                    <Typography variant="caption" color="text.secondary" display="block">{r.class_name}</Typography>
+                  ) : null}
+                </TableCell>
+              </TableRow>
+            ))}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={3} sx={{ color: "text.secondary" }}>
+                  No runs.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
+      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", flexShrink: 0 }}>
         Right-click a run row for actions.
       </Typography>
 
@@ -285,6 +304,7 @@ export default function RunsManagerView() {
           Open data
         </MenuItem>
         <MenuItem
+          sx={{ color: "error.main" }}
           disabled={!contextTarget || ["COMPLETED", "FAILED", "CANCELLED", "ABORTED"].includes(contextTarget.status)}
           onClick={async () => {
             if (!contextTarget) return;

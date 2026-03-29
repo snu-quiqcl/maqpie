@@ -50,7 +50,7 @@ export type PanelResp = {
   parameters_schema: Record<string, ParamSchema>;
   param_values: Record<string, unknown>;
   panel: {
-    fields: Array<{ key: string; control: string; default?: unknown; unit?: string }>;
+    fields: Array<{ key: string; control: string }>;
     schedule_defaults: {
       priority: Priority;
       schedule_type: ScheduleType;

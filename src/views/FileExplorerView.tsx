@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createWindowFrame } from "../lib/windowFrame";
 import {
   Box,
   Button,
@@ -185,12 +186,13 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
       const target = windows.find((w) => !w.locked && w.tabs.every((t) => t.view === "experimentPanel"));
       if (target) addTabToWindow(target.windowId, tab, true);
       else {
+        const frame = createWindowFrame("experimentPanel");
         const win = {
           windowId: uid("win"),
-          x: 120,
-          y: 120,
-          w: 560,
-          h: 440,
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
           locked: false,
           tabs: [tab],
           activeTabId: tab.tabId,
@@ -326,7 +328,12 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         }}
       >
         {fileExplorerConfig.showTypeToggle ? (
-          <Select size="small" value={type} onChange={(e) => setType(e.target.value as FileType)}>
+          <Select
+            size="small"
+            value={type}
+            onChange={(e) => setType(e.target.value as FileType)}
+            sx={{ "& .MuiSelect-select": { py: "3px", fontSize: 11.5 } }}
+          >
             <MenuItem value="script">script</MenuItem>
             <MenuItem value="fpga">fpga</MenuItem>
           </Select>

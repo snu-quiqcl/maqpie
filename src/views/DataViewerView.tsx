@@ -342,13 +342,22 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const scalarValue = useMemo(() => extractScalarValue(data), [data]);
   const scalarMode = explicitDatasetType === "scalar" || (columns.length === 0 && scalarValue !== null);
   const sectionSx = {
-    mt: 1,
-    p: 0.9,
+    mt: 0.8,
+    p: 0.75,
     border: "1px solid var(--border)",
     borderRadius: 1,
     background: "color-mix(in srgb, var(--panel2) 72%, transparent)",
   } as const;
   const sectionTitleSx = { display: "block", mb: 0.5, letterSpacing: "0.02em" } as const;
+  const clampSelectSx = {
+    minWidth: 0,
+    "& .MuiSelect-select": {
+      minWidth: 0,
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    },
+  } as const;
 
   useEffect(() => {
     const varOpts = schemaParamAxes.length > 0 ? schemaParamAxes : ["index"];
@@ -652,7 +661,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
+    <Paper variant="outlined" sx={{ p: 1.2 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
@@ -691,6 +700,26 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
               Refresh snapshot
             </Button>
           )}
+          <Button
+            size="small"
+            variant="outlined"
+            disabled={!selected || loading}
+            onClick={async () => {
+              if (!selected) return;
+              try {
+                if (archiveMode && archiveId) {
+                  await api.downloadArchivedDatasetRaw(archiveId, selected);
+                } else {
+                  await api.downloadDatasetRaw(rid, selected);
+                }
+                showToast("Download started", selected);
+              } catch (e: any) {
+                showToast("Download failed", e.message || String(e));
+              }
+            }}
+          >
+            Download raw
+          </Button>
           {!archiveMode && (
             <Button size="small" variant="outlined" onClick={() => {
               setArchiveTitle(`Run ${rid} Archive`);
@@ -703,7 +732,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         </Stack>
       </Stack>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: "256px 1fr", gap: 1.25, mt: 1.25 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "236px 1fr", gap: 1, mt: 1 }}>
         <Box>
           <Box sx={{ ...sectionSx, mt: 0 }}>
             <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
@@ -727,7 +756,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 No datasets available yet.
               </Typography>
             ) : null}
-            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.75 }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.6 }}>
               <Typography variant="caption" color="text.secondary">
                 Advanced query
               </Typography>
@@ -744,7 +773,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 onChange={(e) => setQueryText(e.target.value)}
                 fullWidth
                 sx={{
-                  mt: 0.75,
+                  mt: 0.6,
                   "& .MuiInputBase-root": {
                     fontFamily: "var(--mono)",
                     fontSize: 12,
@@ -752,7 +781,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   },
                 }}
               />
-              <Stack direction="row" spacing={0.75} sx={{ mt: 0.75 }}>
+              <Stack direction="row" spacing={0.6} sx={{ mt: 0.6 }}>
                 <Button
                   size="small"
                   variant="contained"
@@ -807,11 +836,11 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   Reset
                 </Button>
               </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.75 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
                 `SELECT`, `WHERE`, `GROUP BY`, `AGG`, `ORDER BY`, `LIMIT`
               </Typography>
               {querySummary ? (
-                <Typography variant="caption" sx={{ display: "block", mt: 0.4, color: "var(--accent-2)" }}>
+                <Typography variant="caption" sx={{ display: "block", mt: 0.3, color: "var(--accent-2)" }}>
                   {querySummary}
                 </Typography>
               ) : null}
@@ -830,7 +859,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   value={plotMode}
                   onChange={(_, next) => next && setPlotMode(next)}
                   sx={{
-                    "& .MuiToggleButton-root": { px: 1.2, py: 0.25, fontSize: 12, minHeight: 28 },
+                    "& .MuiToggleButton-root": { px: 1.05, py: 0.2, fontSize: 11.5, minHeight: 26 },
                   }}
                 >
                   <ToggleButton value="1d">1D</ToggleButton>
@@ -843,9 +872,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   X axis
                 </Typography>
                 <Stack spacing={0.6}>
-                  <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth>
+                  <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth sx={clampSelectSx}>
                     {fieldOptions.map((f) => (
-                      <MenuItem key={f} value={f}>{f}</MenuItem>
+                      <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                     ))}
                   </Select>
                   <Stack direction="row" spacing={0.6}>
@@ -855,9 +884,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                       <MenuItem value="average">average</MenuItem>
                       <MenuItem value="threshold">threshold</MenuItem>
                     </Select>
-                    <Select size="small" value={xAggField} onChange={(e) => setXAggField(e.target.value)} fullWidth>
+                    <Select size="small" value={xAggField} onChange={(e) => setXAggField(e.target.value)} fullWidth sx={clampSelectSx}>
                       {fieldOptions.map((f) => (
-                        <MenuItem key={`xagg-${f}`} value={f}>{f}</MenuItem>
+                        <MenuItem key={`xagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                       ))}
                     </Select>
                   </Stack>
@@ -872,9 +901,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   Y axis
                 </Typography>
                 <Stack spacing={0.6}>
-                  <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth>
+                  <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth sx={clampSelectSx}>
                     {fieldOptions.map((f) => (
-                      <MenuItem key={f} value={f}>{f}</MenuItem>
+                      <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                     ))}
                   </Select>
                   <Stack direction="row" spacing={0.6}>
@@ -884,9 +913,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                       <MenuItem value="average">average</MenuItem>
                       <MenuItem value="threshold">threshold</MenuItem>
                     </Select>
-                    <Select size="small" value={yAggField} onChange={(e) => setYAggField(e.target.value)} fullWidth>
+                    <Select size="small" value={yAggField} onChange={(e) => setYAggField(e.target.value)} fullWidth sx={clampSelectSx}>
                       {fieldOptions.map((f) => (
-                        <MenuItem key={`yagg-${f}`} value={f}>{f}</MenuItem>
+                        <MenuItem key={`yagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                       ))}
                     </Select>
                   </Stack>
@@ -902,9 +931,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                     Z axis
                   </Typography>
                   <Stack spacing={0.6}>
-                    <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth>
+                    <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth sx={clampSelectSx}>
                       {fieldOptions.map((f) => (
-                        <MenuItem key={f} value={f}>{f}</MenuItem>
+                        <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                       ))}
                     </Select>
                     <Stack direction="row" spacing={0.6}>
@@ -914,9 +943,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                         <MenuItem value="average">average</MenuItem>
                         <MenuItem value="threshold">threshold</MenuItem>
                       </Select>
-                      <Select size="small" value={zAggField} onChange={(e) => setZAggField(e.target.value)} fullWidth>
+                      <Select size="small" value={zAggField} onChange={(e) => setZAggField(e.target.value)} fullWidth sx={clampSelectSx}>
                         {fieldOptions.map((f) => (
-                          <MenuItem key={`zagg-${f}`} value={f}>{f}</MenuItem>
+                          <MenuItem key={`zagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
                         ))}
                       </Select>
                     </Stack>
@@ -935,9 +964,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   Variables
                 </Typography>
-                <Select size="small" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)} fullWidth>
+                <Select size="small" value={selectedVariable} onChange={(e) => setSelectedVariable(e.target.value)} fullWidth sx={clampSelectSx}>
                   {(schemaParamAxes.length > 0 ? schemaParamAxes : ["index"]).map((name) => (
-                    <MenuItem key={name} value={name}>{name}</MenuItem>
+                    <MenuItem key={name} value={name} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</MenuItem>
                   ))}
                 </Select>
                 <Divider sx={{ my: 1 }} />
@@ -949,16 +978,17 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   value={selectedDataColumn}
                   onChange={(e) => setSelectedDataColumn(e.target.value)}
                   fullWidth
+                  sx={clampSelectSx}
                 >
                   {schemaDataAxesEffective.map((name) => (
-                    <MenuItem key={name} value={name}>{name}</MenuItem>
+                    <MenuItem key={name} value={name} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</MenuItem>
                   ))}
                 </Select>
               </Box>
             </>
           )}
 
-          <Box sx={{ mt: 1.25 }}>
+          <Box sx={{ mt: 1 }}>
             <Typography variant="caption" color="text.secondary">
               {queryActive ? "Showing transformed query results." : "Select axes to explore the dataset."}
             </Typography>
@@ -975,7 +1005,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
               ? ` · variable: ${selectedVariable || "?"} · column: ${selectedDataColumn || "?"}`
               : ` · x: ${xField || "?"} · y: ${yField || "?"}${plotMode === "2d" ? ` · z: ${zField || "?"}` : ""}`}
           </Typography>
-          <Box sx={{ mt: 0.75, height: 360 }}>
+          <Box sx={{ mt: 0.6, height: 336 }}>
             <Plot
               data={plotTrace}
               layout={{

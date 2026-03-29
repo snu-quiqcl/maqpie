@@ -7,7 +7,7 @@ import ArchivesView from "../views/ArchivesView";
 import PanelConfigsView from "../views/PanelConfigsView";
 import TTLControlsView from "../views/TTLControlsView";
 
-export default function ViewHost({ tab, compact }: { tab: TabModel; compact?: boolean }) {
+export default function ViewHost({ tab, compact, windowId }: { tab: TabModel; compact?: boolean; windowId?: string }) {
   const props = tab.props && typeof tab.props === "object" ? tab.props : {};
   const defaultPath = typeof props.defaultPath === "string" ? props.defaultPath : undefined;
   const panelId = typeof props.panelId === "string" ? props.panelId : "";
@@ -21,7 +21,7 @@ export default function ViewHost({ tab, compact }: { tab: TabModel; compact?: bo
     case "fileExplorer":
       return <FileExplorerView defaultPath={defaultPath} />;
     case "experimentPanel":
-      return <ExperimentPanelView panelId={panelId} compact={compact} />;
+      return <ExperimentPanelView panelId={panelId} compact={compact} windowId={windowId} tabId={tab.tabId} />;
     case "dataViewer":
       return <DataViewerView rid={rid} datasetName={datasetName} archiveId={archiveId} />;
     case "archives":

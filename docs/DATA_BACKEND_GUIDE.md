@@ -1203,6 +1203,342 @@ Less good:
 AGG avg(row0) AS a, count_if(row1 > 5) AS b
 ```
 
+## Query Cookbook
+
+This section collects common plotting-oriented query patterns.
+
+Assume the source dataset looks like:
+
+```json
+{
+  "columns": ["dummy_row", "row0", "row1", "row2", "row3"],
+  "data": [
+    [0, 0, 1, 2, 100],
+    [0, 1, 2, 3, 100],
+    [1, 2, 3, 4, 100],
+    [1, 3, 4, 5, 100]
+  ]
+}
+```
+
+### 1. Plot raw columns directly
+
+Use when:
+
+- you want to plot existing columns without reshaping
+
+Query:
+
+```text
+SELECT dummy_row, row0, row1
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- x axis: `dummy_row`
+- y axis: `row0`
+- optionally compare with `row1`
+
+### 2. Filter before plotting
+
+Use when:
+
+- you only want rows that meet a condition
+
+Query:
+
+```text
+SELECT dummy_row, row0, row1
+WHERE row1 > 2
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- remove low-signal or invalid points
+
+### 3. Create a derived column
+
+Use when:
+
+- the interesting quantity is computed from existing columns
+
+Query:
+
+```text
+SELECT dummy_row, row0 + row1 AS total, row1 - row0 AS delta
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- plot `total` or `delta` directly
+
+### 4. Average by parameter value
+
+Use when:
+
+- you have repeated measurements for the same `dummy_row`
+- you want one averaged point per parameter value
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- x axis: `dummy_row`
+- y axis: `avg_row0`
+
+### 5. Multiple aggregates in one summary table
+
+Use when:
+
+- you want several summary statistics for the same grouped axis
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0, min(row0) AS min_row0, max(row0) AS max_row0
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- choose any returned summary column for plotting
+
+### 6. Threshold count by parameter
+
+Use when:
+
+- you want to count how many points exceed a threshold for each parameter value
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG count_if(row2 > 10) AS hits
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- x axis: `dummy_row`
+- y axis: `hits`
+
+This is the query-language equivalent of the current threshold widget, but expressed explicitly.
+
+### 7. Sum by parameter
+
+Use when:
+
+- you want the total signal per parameter value
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG sum(row1) AS sum_row1
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- x axis: `dummy_row`
+- y axis: `sum_row1`
+
+### 8. First and last measurement per parameter
+
+Use when:
+
+- you want edge values instead of averages
+
+Query:
+
+```text
+GROUP BY dummy_row
+AGG first(row0) AS first_row0, last(row0) AS last_row0
+ORDER BY dummy_row ASC
+```
+
+Typical use:
+
+- compare drift or change across repeated saves
+
+### 9. Keep only the top values
+
+Use when:
+
+- you want a ranked subset of rows
+
+Query:
+
+```text
+SELECT dummy_row, row0, row1
+ORDER BY row1 DESC
+LIMIT 20
+```
+
+Typical use:
+
+- inspect strongest events or outliers
+
+### 10. Bin a continuous variable
+
+Use when:
+
+- you want coarse grouping rather than exact values
+
+Query:
+
+```text
+GROUP BY round(dummy_row / 10) AS bin
+AGG avg(row0) AS avg_row0, count() AS n
+ORDER BY bin ASC
+```
+
+Typical use:
+
+- downsample dense scans
+- summarize noisy continuous axes
+
+### 11. Two-step thinking for 2D plots
+
+For scatter-style 2D plots, prefer returning exactly the columns you want to map:
+
+Query:
+
+```text
+SELECT dummy_row AS x, row0 AS y, row2 AS z
+WHERE row2 > 0
+ORDER BY x ASC
+```
+
+Typical use:
+
+- x axis: `x`
+- y axis: `y`
+- color/value axis: `z`
+
+### 12. Translate the current widgets into queries
+
+Average along an axis:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+ORDER BY dummy_row ASC
+```
+
+Sum along an axis:
+
+```text
+GROUP BY dummy_row
+AGG sum(row0) AS sum_row0
+ORDER BY dummy_row ASC
+```
+
+Threshold count:
+
+```text
+GROUP BY dummy_row
+AGG count_if(row0 > 5) AS hits
+ORDER BY dummy_row ASC
+```
+
+### 13. When to use `SELECT` vs `GROUP BY`
+
+Use `SELECT` when:
+
+- each input row should stay an output row
+- you are computing derived columns only
+
+Use `GROUP BY` plus `AGG` when:
+
+- many input rows should collapse into one summary row
+- you want averages, sums, counts, minima, or maxima
+
+### 14. Common mistakes
+
+Mistake:
+
+```text
+SELECT avg(row0) AS avg_row0
+```
+
+Better:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+```
+
+Mistake:
+
+```text
+SELECT * FROM dataset
+```
+
+Better:
+
+```text
+SELECT dummy_row, row0, row1
+```
+
+Mistake:
+
+```text
+HAVING avg(row0) > 10
+```
+
+Current status:
+
+- unsupported
+
+### 15. SQL to query-language translations
+
+SQL:
+
+```sql
+SELECT dummy_row, AVG(row0) AS avg_row0
+FROM dataset
+GROUP BY dummy_row
+ORDER BY dummy_row ASC;
+```
+
+Query language:
+
+```text
+GROUP BY dummy_row
+AGG avg(row0) AS avg_row0
+ORDER BY dummy_row ASC
+```
+
+SQL:
+
+```sql
+SELECT dummy_row, row0 + row1 AS total
+FROM dataset
+WHERE row2 > 0
+ORDER BY dummy_row ASC
+LIMIT 100;
+```
+
+Query language:
+
+```text
+SELECT dummy_row, row0 + row1 AS total
+WHERE row2 > 0
+ORDER BY dummy_row ASC
+LIMIT 100
+```
+
 ### Query endpoint pattern
 
 Recommended API shape:

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper, Select, Stack, TextField, Typography } from "@mui/material";
+import { createWindowFrame } from "../lib/windowFrame";
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Select, Stack, TextField, Typography } from "@mui/material";
+import MinimizeIcon from "@mui/icons-material/Minimize";
 import { api } from "../lib/api";
 import { useAppStore } from "../state/store";
 
@@ -23,7 +25,7 @@ type PanelDTO = {
   parameters_schema: Record<string, ParamSchemaField>;
   param_values: Record<string, any>;
   panel?: {
-    fields?: Array<{ key: string; control: string; default?: any; unit?: string }>;
+    fields?: Array<{ key: string; control: string }>;
     schedule_defaults?: {
       priority?: number;
       schedule_type?: "NOW" | "TIMED" | "RECURRING";
@@ -59,6 +61,16 @@ function detectBrowserTimezone() {
   }
 }
 
+function normalizePanelTimezone(tz?: string | null) {
+  const browserTz = detectBrowserTimezone();
+  const raw = String(tz ?? "").trim();
+  if (!raw) return browserTz;
+  // Treat legacy UTC defaults as "no user-specific timezone chosen" so timed
+  // scheduling follows the user's local browser timezone by default.
+  if (raw === "UTC") return browserTz;
+  return raw;
+}
+
 function toLocalDateTimeInput(v?: string | null) {
   if (!v) return "";
   const d = new Date(v);
@@ -71,7 +83,6 @@ function summarizeSchedule(
   scheduleType: ScheduleType,
   opts: {
     scheduledAt: string;
-    timezone: string;
     recurrenceKind: RecurrenceKind;
     intervalMin: string;
     dailyTime: string;
@@ -82,7 +93,7 @@ function summarizeSchedule(
   }
 ) {
   if (scheduleType === "NOW") return "NOW";
-  if (scheduleType === "TIMED") return opts.scheduledAt ? `TIMED · ${opts.scheduledAt} (${opts.timezone})` : "TIMED";
+  if (scheduleType === "TIMED") return opts.scheduledAt ? `TIMED · ${opts.scheduledAt}` : "TIMED";
   if (opts.recurrenceKind === "interval") return `RECURRING · every ${opts.intervalMin || "?"} min`;
   if (opts.recurrenceKind === "daily") return `RECURRING · every ${opts.dailyEvery || "1"} day(s) at ${opts.dailyTime || "--:--"}`;
   const labels = opts.weeklyDays.map((day) => WEEKDAY_LABELS[day]).join(", ");
@@ -131,9 +142,24 @@ function coerceValue(raw: string, field: ParamSchemaField) {
   return raw;
 }
 
-export default function ExperimentPanelView({ panelId, compact }: { panelId: string; compact?: boolean }) {
+export default function ExperimentPanelView({
+  panelId,
+  compact,
+  minimizedCard,
+  onRestore,
+  windowId,
+  tabId,
+}: {
+  panelId: string;
+  compact?: boolean;
+  minimizedCard?: boolean;
+  onRestore?: () => void;
+  windowId?: string;
+  tabId?: string;
+}) {
   const showToast = useAppStore((s) => s.showToast);
   const addWindow = useAppStore((s) => s.addWindow);
+  const minimizePanelTab = useAppStore((s) => s.minimizePanelTab);
 
   const [loading, setLoading] = useState(true);
   const [panel, setPanel] = useState<PanelDTO | null>(null);
@@ -177,7 +203,7 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
         if (defaults?.schedule_type) setScheduleType(defaults.schedule_type);
         if (defaults?.scheduled_at) setScheduledAt(toLocalDateTimeInput(defaults.scheduled_at));
         if (defaults?.interval_min != null) setIntervalMin(String(defaults.interval_min));
-        if (defaults?.timezone) setScheduleTimezone(defaults.timezone);
+        setScheduleTimezone(normalizePanelTimezone(defaults?.timezone));
         if (defaults?.recurrence) {
           const recurrence = defaults.recurrence;
           if (recurrence.kind === "interval" || recurrence.kind === "daily" || recurrence.kind === "weekly") {
@@ -240,12 +266,13 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
 
   function openDataViewer(rid: number, datasetName?: string) {
     const tabId = uid("tab");
+    const frame = createWindowFrame("dataViewer");
     addWindow({
       windowId: uid("win"),
-      x: 220,
-      y: 120,
-      w: 700,
-      h: 500,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [
         {
@@ -498,6 +525,60 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
     );
   }
 
+  if (minimizedCard) {
+    return (
+      <Paper
+        variant="outlined"
+        sx={{
+          p: 0.75,
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          borderRadius: 1.5,
+        }}
+      >
+        <Box sx={{ minWidth: 0 }}>
+          <Typography
+            variant="subtitle2"
+            sx={{
+              fontWeight: 700,
+              lineHeight: 1.15,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={panel.name}
+          >
+            {panel.name}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              display: "block",
+              mt: 0.25,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            title={panel.script_path}
+          >
+            {panel.script_path}
+          </Typography>
+        </Box>
+        <Stack direction="row" spacing={0.5} sx={{ mt: 1 }} justifyContent="space-between">
+          <Button variant="contained" onClick={onLaunch} disabled={loading}>
+            Queue
+          </Button>
+          <Button variant="outlined" onClick={onRestore}>
+            Return
+          </Button>
+        </Stack>
+      </Paper>
+    );
+  }
+
   return (
     <Paper
       variant="outlined"
@@ -513,7 +594,19 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{panel.name}</Typography>
           <Typography variant="caption" color="text.secondary">{panel.script_path}</Typography>
         </Box>
-        <Typography variant="caption" color="text.secondary">panel_id: {panel.panel_id ?? panelId}</Typography>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          {windowId && tabId ? (
+            <IconButton
+              size="small"
+              onClick={() => minimizePanelTab(windowId, tabId)}
+              sx={{ p: 0.45 }}
+              title="Minimize this panel"
+            >
+              <MinimizeIcon fontSize="inherit" />
+            </IconButton>
+          ) : null}
+          <Typography variant="caption" color="text.secondary">panel_id: {panel.panel_id ?? panelId}</Typography>
+        </Stack>
       </Stack>
 
       {compact ? (
@@ -526,7 +619,6 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
               <Typography variant="caption" color="text.secondary">
                 {summarizeSchedule(scheduleType, {
                   scheduledAt,
-                  timezone: scheduleTimezone,
                   recurrenceKind,
                   intervalMin,
                   dailyTime,
@@ -663,14 +755,16 @@ export default function ExperimentPanelView({ panelId, compact }: { panelId: str
                   value={scheduledAt}
                   onChange={(e) => setScheduledAt(e.target.value)}
                   type="datetime-local"
-                  sx={{ width: 205 }}
+                  sx={{ width: 205, ml: 0.5 }}
                 />
               )}
             </Stack>
             {scheduleType !== "NOW" ? (
               <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
                 <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Timezone</Typography>
-                <TextField size="small" value={scheduleTimezone} onChange={(e) => setScheduleTimezone(e.target.value)} sx={{ width: 160 }} />
+                <Typography variant="caption" color="text.secondary">
+                  {scheduleTimezone}
+                </Typography>
               </Stack>
             ) : null}
             {scheduleType === "RECURRING" ? (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createWindowFrame } from "../lib/windowFrame";
 import { Box, Button, CircularProgress, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api } from "../lib/api";
 import type { PanelConfigListItem } from "../lib/types";
@@ -28,7 +29,15 @@ export default function PanelConfigsView() {
       fontWeight: 700,
       letterSpacing: 0.3,
       textTransform: "uppercase",
-      color: "text.secondary",
+      color: "var(--text)",
+      backgroundColor: "var(--panel2)",
+      borderBottomColor: "var(--border)",
+    },
+  };
+  const compactFilterLabelSx = {
+    transform: "translate(14px, 7px) scale(1)",
+    "&.MuiInputLabel-shrink": {
+      transform: "translate(14px, -9px) scale(0.75)",
     },
   };
 
@@ -46,12 +55,13 @@ export default function PanelConfigsView() {
         addTabToWindow(target.windowId, tab, true);
         bringToFront(target.windowId);
       } else {
+        const frame = createWindowFrame("experimentPanel");
         const win = {
           windowId: uid("win"),
-          x: 140,
-          y: 140,
-          w: 560,
-          h: 440,
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
           locked: false,
           tabs: [tab],
           activeTabId: tab.tabId,
@@ -120,7 +130,10 @@ export default function PanelConfigsView() {
   }, []);
 
   return (
-    <Paper variant="outlined" sx={{ p: 1, bgcolor: "background.paper" }}>
+    <Paper
+      variant="outlined"
+      sx={{ p: 1, bgcolor: "background.paper", height: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
+    >
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.75} sx={{ mb: 0.75 }}>
         <Box>
           <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Panel Configurations</Typography>
@@ -137,21 +150,33 @@ export default function PanelConfigsView() {
           label="Tag"
           value={tag}
           onChange={(e) => setTag(e.target.value)}
-          sx={{ minWidth: 100 }}
+          InputLabelProps={{ sx: compactFilterLabelSx }}
+          sx={{
+            minWidth: 100,
+            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+          }}
         />
         <TextField
           size="small"
           label="Script path"
           value={scriptPath}
           onChange={(e) => setScriptPath(e.target.value)}
-          sx={{ minWidth: 140 }}
+          InputLabelProps={{ sx: compactFilterLabelSx }}
+          sx={{
+            minWidth: 140,
+            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+          }}
         />
         <TextField
           size="small"
           label="Class name"
           value={className}
           onChange={(e) => setClassName(e.target.value)}
-          sx={{ minWidth: 120 }}
+          InputLabelProps={{ sx: compactFilterLabelSx }}
+          sx={{
+            minWidth: 120,
+            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+          }}
         />
         <Button size="small" variant="contained" onClick={refresh} disabled={loading}>
           Apply
@@ -159,12 +184,12 @@ export default function PanelConfigsView() {
       </Stack>
 
       {loading ? (
-        <Box sx={{ display: "grid", placeItems: "center", py: 3 }}>
+        <Box sx={{ display: "grid", placeItems: "center", py: 3, flex: 1, minHeight: 0 }}>
           <CircularProgress size={20} />
         </Box>
       ) : (
-        <Box sx={{ overflowX: "auto" }}>
-          <Table size="small" sx={{ ...compactTableSx, minWidth: 640 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          <Table size="small" stickyHeader sx={{ ...compactTableSx, minWidth: 640 }}>
             <TableHead>
               <TableRow>
                 <TableCell>Title</TableCell>

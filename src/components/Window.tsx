@@ -1,7 +1,9 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MinimizeIcon from "@mui/icons-material/Minimize";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useAppStore } from "../state/store";
 import type { WindowModel } from "../state/store";
 import ViewHost from "./ViewHost";
@@ -31,6 +33,11 @@ export default function Window({ model }: { model: WindowModel }) {
     originX: number;
     originY: number;
   } | null>(null);
+
+  const tabstripRef = useRef<HTMLDivElement | null>(null);
+  const [showTabLeft, setShowTabLeft] = useState(false);
+  const [showTabRight, setShowTabRight] = useState(false);
+  const [tabHoverSide, setTabHoverSide] = useState<"left" | "right" | null>(null);
 
   const resizeState = useRef<{
     startX: number;
@@ -154,7 +161,20 @@ export default function Window({ model }: { model: WindowModel }) {
   function popOutActive() {
     if (model.locked) return;
     if (!active) return;
-    const payload = encodeURIComponent(JSON.stringify({ ...active, originWindowId: model.windowId }));
+    const payload = encodeURIComponent(
+      JSON.stringify({
+        ...active,
+        originWindowId: model.windowId,
+        originWindow: {
+          windowId: model.windowId,
+          x: model.x,
+          y: model.y,
+          w: model.w,
+          h: model.h,
+          locked: Boolean(model.locked),
+        },
+      })
+    );
     const url = `${window.location.origin}${window.location.pathname}?popout=1&tab=${payload}`;
     const left = Math.max(0, Math.floor(window.screenX + 40));
     const top = Math.max(0, Math.floor(window.screenY + 40));
@@ -165,110 +185,184 @@ export default function Window({ model }: { model: WindowModel }) {
     }
   }
 
-  const shellHeight = model.minimized && !isPanelWindow ? 36 : model.h;
+  function updateTabArrows() {
+    const el = tabstripRef.current;
+    if (!el) return;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    setShowTabLeft(el.scrollLeft > 4);
+    setShowTabRight(maxScroll - el.scrollLeft > 4);
+  }
+
+  function scrollTabs(direction: "left" | "right") {
+    const el = tabstripRef.current;
+    if (!el) return;
+    const delta = Math.max(160, Math.floor(el.clientWidth * 0.45));
+    el.scrollBy({ left: direction === "left" ? -delta : delta, behavior: "smooth" });
+  }
+
+  function handleTabstripMouseMove(e: React.MouseEvent<HTMLDivElement>) {
+    const el = tabstripRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const edge = 42;
+    const onLeft = e.clientX - rect.left <= edge;
+    const onRight = rect.right - e.clientX <= edge;
+    if (onLeft && showTabLeft) setTabHoverSide("left");
+    else if (onRight && showTabRight) setTabHoverSide("right");
+    else setTabHoverSide(null);
+  }
+
+  useEffect(() => {
+    updateTabArrows();
+    const el = tabstripRef.current;
+    if (!el) return;
+    const onScroll = () => updateTabArrows();
+    el.addEventListener("scroll", onScroll);
+    window.addEventListener("resize", updateTabArrows);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", updateTabArrows);
+    };
+  }, [model.tabs.length, model.activeTabId, model.w]);
 
   return (
     <div
-      className={`window-shell ${model.minimized && !isPanelWindow ? "window-minimized" : ""}`}
-      style={{ left: model.x, top: model.y, width: model.w, height: shellHeight, zIndex: model.z }}
+      className="window-shell"
+      style={{ left: model.x, top: model.y, width: model.w, height: model.h, zIndex: model.z }}
       onMouseDown={() => bringToFront(model.windowId)}
     >
       <div className={`window ${model.locked ? "singleton" : ""}`} style={{ width: "100%", height: "100%" }}>
         <div className="titlebar" onPointerDown={startDrag}>
+          <div className="actions trafficLights">
+            <button
+              className="trafficButton trafficMinimize"
+              onClick={() => toggleWindowMinimized(model.windowId)}
+              title={isPanelWindow ? "Minimize panels" : "Minimize window"}
+              aria-label={isPanelWindow ? "Minimize panels" : "Minimize window"}
+            >
+              {model.minimized ? <CropSquareIcon fontSize="inherit" /> : <MinimizeIcon fontSize="inherit" />}
+            </button>
+            {!model.locked && (
+              <button
+                className="trafficButton trafficZoom"
+                onClick={popOutActive}
+                title="Pop out tab"
+                aria-label="Pop out tab"
+              >
+                <OpenInNewIcon fontSize="inherit" />
+              </button>
+            )}
+            {!model.locked && (
+              <button
+                className="trafficButton trafficClose"
+                onClick={() => closeWindow(model.windowId)}
+                title="Close window"
+                aria-label="Close window"
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <div
             className="title"
             title={isPanelWindow ? `Panels (${model.tabs.length})` : active?.title ?? "Window"}
           >
             {isPanelWindow ? `Panels (${model.tabs.length})` : active?.title ?? "Window"}
           </div>
-          <div className="actions">
-            <button
-              onClick={() => toggleWindowMinimized(model.windowId)}
-              title={isPanelWindow ? "Minimize panels" : "Minimize window"}
-            >
-              {model.minimized ? <CropSquareIcon fontSize="inherit" /> : <MinimizeIcon fontSize="inherit" />}
-            </button>
-            {!model.locked && (
-              <button onClick={popOutActive} title="Pop out tab">
-                <OpenInNewIcon fontSize="inherit" />
-              </button>
-            )}
-            {!model.locked && (
-              <button onClick={() => closeWindow(model.windowId)} title="Close window">
-                ✕
-              </button>
-            )}
-          </div>
         </div>
 
         {!model.minimized || isPanelWindow ? (
-          <div
-            className="tabstrip"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              if (model.locked) return;
-              const raw = e.dataTransfer.getData("application/x-labtab");
-              if (!raw) return;
-              const { fromWindowId, tabId } = JSON.parse(raw);
-              mergeTabIntoWindow(fromWindowId, tabId, model.windowId);
-            }}
-          >
-            {model.tabs.map((t) => {
-              const isActive = t.tabId === model.activeTabId;
-              return (
-                <div
-                  key={t.tabId}
-                  className={`tab ${isActive ? "active" : ""}`}
-                  onClick={() => setActiveTab(model.windowId, t.tabId)}
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData(
-                      "application/x-labtab",
-                      JSON.stringify({ fromWindowId: model.windowId, tabId: t.tabId })
-                    );
-                  }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const raw = e.dataTransfer.getData("application/x-labtab");
-                    if (!raw) return;
-                    const { fromWindowId, tabId } = JSON.parse(raw);
-                    mergeTabIntoWindow(fromWindowId, tabId, model.windowId);
-                    setActiveTab(model.windowId, t.tabId);
-                  }}
-                >
-                  <span className="tabLabel" title={t.title}>{t.title}</span>
-                  <span className="tabActions">
-                    {!model.locked && (
-                      <button
-                        className="tabAction"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          detachTab(model.windowId, t.tabId);
-                        }}
-                        title="Detach tab"
-                      >
-                        ↗
-                      </button>
-                    )}
-                    {(!model.locked || model.tabs.length > 1) && (
-                      <button
-                        className="tabAction"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeTab(model.windowId, t.tabId);
-                        }}
-                        title="Close tab"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-            <div style={{ flex: 1 }} />
+          <div className="tabstripWrap" onMouseLeave={() => setTabHoverSide(null)}>
+            {showTabLeft ? (
+              <button
+                className={`tabstripArrow left ${tabHoverSide === "left" ? "visible" : ""}`}
+                onClick={() => scrollTabs("left")}
+                title="Scroll tabs left"
+              >
+                <ChevronLeftIcon fontSize="inherit" />
+              </button>
+            ) : null}
+            {showTabRight ? (
+              <button
+                className={`tabstripArrow right ${tabHoverSide === "right" ? "visible" : ""}`}
+                onClick={() => scrollTabs("right")}
+                title="Scroll tabs right"
+              >
+                <ChevronRightIcon fontSize="inherit" />
+              </button>
+            ) : null}
+            <div
+              ref={tabstripRef}
+              className="tabstrip"
+              onMouseMove={handleTabstripMouseMove}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (model.locked) return;
+                const raw = e.dataTransfer.getData("application/x-labtab");
+                if (!raw) return;
+                const { fromWindowId, tabId } = JSON.parse(raw);
+                mergeTabIntoWindow(fromWindowId, tabId, model.windowId);
+              }}
+            >
+              {model.tabs.map((t) => {
+                const isActive = t.tabId === model.activeTabId;
+                return (
+                  <div
+                    key={t.tabId}
+                    className={`tab ${isActive ? "active" : ""}`}
+                    onClick={() => {
+                      setActiveTab(model.windowId, t.tabId);
+                    }}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(
+                        "application/x-labtab",
+                        JSON.stringify({ fromWindowId: model.windowId, tabId: t.tabId })
+                      );
+                    }}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const raw = e.dataTransfer.getData("application/x-labtab");
+                      if (!raw) return;
+                      const { fromWindowId, tabId } = JSON.parse(raw);
+                      mergeTabIntoWindow(fromWindowId, tabId, model.windowId);
+                      setActiveTab(model.windowId, t.tabId);
+                    }}
+                  >
+                    <span className="tabLabel" title={t.title}>{t.title}</span>
+                    <span className="tabActions">
+                      {!model.locked && (
+                        <button
+                          className="tabAction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            detachTab(model.windowId, t.tabId);
+                          }}
+                          title="Detach tab"
+                        >
+                          ↗
+                        </button>
+                      )}
+                      {(!model.locked || model.tabs.length > 1) && (
+                        <button
+                          className="tabAction"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(model.windowId, t.tabId);
+                          }}
+                          title="Close tab"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+              <div style={{ flex: 1 }} />
+            </div>
           </div>
         ) : null}
 
@@ -278,12 +372,12 @@ export default function Window({ model }: { model: WindowModel }) {
               <div className="panel-stack">
                 {model.tabs.map((t) => (
                   <div key={t.tabId} className="panel-stack-item">
-                    <ViewHost tab={t} compact />
+                    <ViewHost tab={t} compact windowId={model.windowId} />
                   </div>
                 ))}
               </div>
             ) : (
-              active ? <ViewHost tab={active} /> : <div className="small">No tab</div>
+              active ? <ViewHost tab={active} windowId={model.windowId} /> : <div className="small">No tab</div>
             )}
           </div>
         ) : null}

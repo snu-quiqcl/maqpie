@@ -4,18 +4,28 @@ import { Box, Button, IconButton, Paper, Stack, TextField, Typography } from "@m
 import SettingsIcon from "@mui/icons-material/Settings";
 import type { WindowModel } from "./state/store";
 import Window from "./components/Window";
+import MinimizedPanelCard from "./components/MinimizedPanelCard";
+import MinimizedWindowItem from "./components/MinimizedWindowItem";
 import ViewHost from "./components/ViewHost";
 import { api, getApiBase, setToken, setUserId } from "./lib/api";
+import { createWindowFrame } from "./lib/windowFrame";
 import { useAppStore } from "./state/store";
 import longLogo from "./assets/longlogo.png";
+import magpieLogo from "./assets/magpie.png";
 import { workspaceConfig } from "./config/workspace";
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+type PopoutTabPayload = WindowModel["tabs"][number] & {
+  originWindowId?: string;
+  originWindow?: Pick<WindowModel, "windowId" | "x" | "y" | "w" | "h" | "locked">;
+};
+
 export default function App() {
   const windows = useAppStore((s) => s.windows);
+  const minimizedPanels = useAppStore((s) => s.minimizedPanels);
   const rehydrate = useAppStore((s) => s.rehydrate);
   const showToast = useAppStore((s) => s.showToast);
   const toast = useAppStore((s) => s.toast);
@@ -26,6 +36,9 @@ export default function App() {
   const openOrFocusFE = useAppStore((s) => s.openOrFocusSingletonFileExplorer);
   const addWindow = useAppStore((s) => s.addWindow);
   const addTabToWindow = useAppStore((s) => s.addTabToWindow);
+  const moveResizeWindow = useAppStore((s) => s.moveResizeWindow);
+  const toggleWindowMinimized = useAppStore((s) => s.toggleWindowMinimized);
+  const bringToFront = useAppStore((s) => s.bringToFront);
 
   const [u, setU] = useState("");
   const [p, setP] = useState("");
@@ -43,7 +56,7 @@ export default function App() {
   const popoutParams = new URLSearchParams(window.location.search);
   const isPopout = popoutParams.get("popout") === "1";
   const popoutTabRaw = popoutParams.get("tab");
-  let popoutTab: (WindowModel["tabs"][number] & { originWindowId?: string }) | null = null;
+  let popoutTab: PopoutTabPayload | null = null;
   if (popoutTabRaw) {
     try {
       popoutTab = JSON.parse(decodeURIComponent(popoutTabRaw));
@@ -126,31 +139,44 @@ export default function App() {
   }, [authed]);
 
   useEffect(() => {
-    function popIn(tab: WindowModel["tabs"][number] & { originWindowId?: string }) {
+    function popIn(tab: PopoutTabPayload) {
       const state = useAppStore.getState();
       const exists = state.windows.some((w) => w.tabs.some((t) => t.tabId === tab.tabId));
       if (exists) {
         localStorage.removeItem("popin_tab");
         return;
       }
+      const { originWindowId, originWindow, ...restTab } = tab;
+      const restoredTab = restTab as WindowModel["tabs"][number];
       const targetId = tab.originWindowId;
       if (targetId) {
         const target = state.windows.find((w) => w.windowId === targetId);
         if (target && !target.locked) {
-          addTabToWindow(targetId, tab, true);
+          addTabToWindow(targetId, restoredTab, true);
+          if (target.minimized) toggleWindowMinimized(targetId);
+          if (originWindow) {
+            moveResizeWindow(targetId, {
+              x: originWindow.x,
+              y: originWindow.y,
+              w: originWindow.w,
+              h: originWindow.h,
+            });
+          }
+          bringToFront(targetId);
           localStorage.removeItem("popin_tab");
           return;
         }
       }
+      const frame = originWindow ?? createWindowFrame(restoredTab.view);
       const win: Omit<WindowModel, "z"> = {
-        windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
-        x: 140,
-        y: 120,
-        w: 620,
-        h: 440,
+        windowId: originWindow?.windowId ?? `win_${Math.random().toString(16).slice(2, 10)}`,
+        x: frame.x,
+        y: frame.y,
+        w: frame.w,
+        h: frame.h,
         locked: false,
-        tabs: [tab],
-        activeTabId: tab.tabId,
+        tabs: [restoredTab],
+        activeTabId: restoredTab.tabId,
       };
       addWindow(win);
       localStorage.removeItem("popin_tab");
@@ -158,7 +184,7 @@ export default function App() {
 
     function onMessage(ev: MessageEvent) {
       if (!ev.data || ev.data.type !== "popin-tab") return;
-      const tab = ev.data.tab as WindowModel["tabs"][number] & { originWindowId?: string };
+      const tab = ev.data.tab as PopoutTabPayload;
       if (!tab) return;
       popIn(tab);
     }
@@ -166,7 +192,7 @@ export default function App() {
     function onStorage(ev: StorageEvent) {
       if (ev.key !== "popin_tab" || !ev.newValue) return;
       try {
-        const tab = JSON.parse(ev.newValue) as WindowModel["tabs"][number] & { originWindowId?: string };
+        const tab = JSON.parse(ev.newValue) as PopoutTabPayload;
         popIn(tab);
       } catch {
         // ignore
@@ -177,7 +203,7 @@ export default function App() {
     const queued = localStorage.getItem("popin_tab");
     if (queued) {
       try {
-        const tab = JSON.parse(queued) as WindowModel["tabs"][number] & { originWindowId?: string };
+        const tab = JSON.parse(queued) as PopoutTabPayload;
         popIn(tab);
       } catch {
         // ignore
@@ -187,7 +213,7 @@ export default function App() {
       window.removeEventListener("message", onMessage);
       window.removeEventListener("storage", onStorage);
     };
-  }, [addWindow, addTabToWindow]);
+  }, [addTabToWindow, addWindow, bringToFront, moveResizeWindow, toggleWindowMinimized]);
 
   async function doLogin() {
     setLoading(true);
@@ -222,12 +248,13 @@ export default function App() {
 
   function openDataViewer() {
     const tabId = uid("tab");
+    const frame = createWindowFrame("dataViewer");
     const win: Omit<WindowModel, "z"> = {
       windowId: uid("win"),
-      x: 220,
-      y: 140,
-      w: 680,
-      h: 480,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [{ tabId, title: "Data Viewer", view: "dataViewer", props: { rid: 0, datasetName: "" } }],
       activeTabId: tabId,
@@ -237,12 +264,13 @@ export default function App() {
 
   function openPanelConfigs() {
     const tabId = uid("tab");
+    const frame = createWindowFrame("panelConfigs");
     const win: Omit<WindowModel, "z"> = {
       windowId: uid("win"),
-      x: 240,
-      y: 140,
-      w: 700,
-      h: 460,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [{ tabId, title: "Panel Configs", view: "panelConfigs", props: {} }],
       activeTabId: tabId,
@@ -252,12 +280,13 @@ export default function App() {
 
   function openArchives() {
     const tabId = uid("tab");
+    const frame = createWindowFrame("archives");
     const win: Omit<WindowModel, "z"> = {
       windowId: uid("win"),
-      x: 200,
-      y: 160,
-      w: 680,
-      h: 460,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [{ tabId, title: "Archives", view: "archives", props: {} }],
       activeTabId: tabId,
@@ -267,12 +296,13 @@ export default function App() {
 
   function openTtlControls() {
     const tabId = uid("tab");
+    const frame = createWindowFrame("ttlControls");
     const win: Omit<WindowModel, "z"> = {
       windowId: uid("win"),
-      x: 260,
-      y: 140,
-      w: 560,
-      h: 400,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [{ tabId, title: "TTL Controls", view: "ttlControls", props: {} }],
       activeTabId: tabId,
@@ -300,6 +330,15 @@ export default function App() {
           <Button
             size="small"
             variant="outlined"
+            sx={{
+              minHeight: 26,
+              px: 1,
+              py: 0.25,
+              fontSize: 11,
+              lineHeight: 1.1,
+              textTransform: "none",
+              borderRadius: "999px",
+            }}
             onClick={() => {
               localStorage.setItem("popin_tab", JSON.stringify(popoutTab));
               if (window.opener) {
@@ -353,7 +392,10 @@ export default function App() {
             </Typography>
           </Paper>
           <div className="loginCard">
-            <img className="loginLogo" src={longLogo} alt="Organization logo" />
+            <div className="loginLogoRow">
+              <img className="loginLogo loginLogoQuiqcl" src={longLogo} alt="QUIQCL logo" />
+              <img className="loginLogo loginLogoMagpie" src={magpieLogo} alt="MAQPIE logo" />
+            </div>
             <Typography className="loginTitle">Sign in</Typography>
             <Stack className="loginForm" spacing={1.25}>
               <TextField
@@ -394,13 +436,10 @@ export default function App() {
       <>
       <div className="topbar">
         <div className="brand">
-          <div>IQUIP Web prototype</div>
-          <div className="brandSub">
-            {workspaceConfig.teamName}
-          </div>
+          <div>MAQPIE</div>
         </div>
 
-        <div className="pill">
+        <div className="launcherRow">
           <Stack direction="row" spacing={0.5}>
             <Button size="small" variant="outlined" onClick={openDataViewer}>Data Viewer</Button>
             <Button size="small" variant="outlined" onClick={openPanelConfigs}>Panel Configs</Button>
@@ -427,8 +466,20 @@ export default function App() {
         </div>
       </div>
 
-      {windows.map((w) => (
+      {windows.filter((w) => !w.minimized).map((w) => (
         <Window key={w.windowId} model={w} />
+      ))}
+
+      {windows.some((w) => w.minimized) && (
+        <div className="minimized-window-dock">
+          {windows.filter((w) => w.minimized).map((w) => (
+            <MinimizedWindowItem key={w.windowId} model={w} />
+          ))}
+        </div>
+      )}
+
+      {minimizedPanels.map((p) => (
+        <MinimizedPanelCard key={p.minimizedId} model={p} />
       ))}
 
       {toast && (

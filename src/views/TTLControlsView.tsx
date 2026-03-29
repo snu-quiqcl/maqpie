@@ -111,7 +111,7 @@ export default function TTLControlsView() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
+    <Paper variant="outlined" sx={{ p: 1.25 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>TTL Controls</Typography>
@@ -122,7 +122,15 @@ export default function TTLControlsView() {
         </Button>
       </Stack>
 
-      <Table size="small" sx={{ mt: 1 }}>
+      <Table
+        size="small"
+        sx={{
+          mt: 0.75,
+          "& .MuiTableCell-root": {
+            py: 0.4,
+          },
+        }}
+      >
         <TableHead>
           <TableRow>
             <TableCell>Device</TableCell>
@@ -134,12 +142,13 @@ export default function TTLControlsView() {
         <TableBody>
           {rows.map((row) => (
             <TableRow key={row.device} hover>
-              <TableCell sx={{ fontFamily: "var(--mono)" }}>{row.device}</TableCell>
+              <TableCell sx={{ fontFamily: "var(--mono)", py: 0.4 }}>{row.device}</TableCell>
               <TableCell>
                 <Switch
                   size="small"
                   checked={row.override}
                   onChange={(e) => updateOverride(row.device, e.target.checked)}
+                  sx={{ my: -0.25 }}
                 />
               </TableCell>
               <TableCell>
@@ -147,6 +156,12 @@ export default function TTLControlsView() {
                   size="small"
                   value={row.level}
                   onChange={(e) => updateLevel(row.device, e.target.value as "HIGH" | "LOW")}
+                  sx={{
+                    minHeight: 28,
+                    "& .MuiSelect-select": {
+                      py: "3px",
+                    },
+                  }}
                 >
                   <MenuItem value="HIGH">HIGH</MenuItem>
                   <MenuItem value="LOW">LOW</MenuItem>
@@ -158,6 +173,19 @@ export default function TTLControlsView() {
                   label={row.value ? "HIGH" : "LOW"}
                   color={row.value ? "success" : "default"}
                   variant="outlined"
+                  sx={{
+                    height: 22,
+                    "& .MuiChip-label": {
+                      px: 1,
+                    },
+                    ...(row.value
+                      ? {}
+                      : {
+                          color: "var(--text)",
+                          borderColor: "var(--border)",
+                          backgroundColor: "color-mix(in srgb, var(--panel2) 88%, transparent)",
+                        }),
+                  }}
                 />
               </TableCell>
             </TableRow>

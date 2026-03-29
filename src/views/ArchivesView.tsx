@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createWindowFrame } from "../lib/windowFrame";
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api } from "../lib/api";
 import type { ArchiveItem } from "../lib/types";
@@ -22,7 +23,9 @@ export default function ArchivesView() {
       fontWeight: 700,
       letterSpacing: 0.3,
       textTransform: "uppercase",
-      color: "text.secondary",
+      color: "var(--text)",
+      backgroundColor: "var(--panel2)",
+      borderBottomColor: "var(--border)",
     },
   };
 
@@ -53,12 +56,13 @@ export default function ArchivesView() {
       view: "dataViewer" as const,
       props: { rid: a.rid, datasetName, archiveId: a.archive_id },
     };
+    const frame = createWindowFrame("dataViewer");
     const win = {
       windowId: `win_${Math.random().toString(16).slice(2, 10)}`,
-      x: 80,
-      y: 80,
-      w: 700,
-      h: 500,
+      x: frame.x,
+      y: frame.y,
+      w: frame.w,
+      h: frame.h,
       locked: false,
       tabs: [tab],
       activeTabId: tab.tabId,
@@ -98,7 +102,10 @@ export default function ArchivesView() {
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1 }}>
+    <Paper
+      variant="outlined"
+      sx={{ p: 1, height: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
+    >
       <Stack direction="row" alignItems="center" spacing={0.75} justifyContent="space-between">
         <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Archives</Typography>
         <Button size="small" variant="outlined" disabled={loading} onClick={refresh}>Refresh</Button>
@@ -106,57 +113,68 @@ export default function ArchivesView() {
 
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.75 }}>
         <Typography variant="caption" color="text.secondary">Tag filter</Typography>
-        <TextField size="small" value={tag} onChange={(e) => setTag(e.target.value)} placeholder="paper" sx={{ minWidth: 120 }} />
+        <TextField
+          size="small"
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
+          placeholder="paper"
+          sx={{
+            minWidth: 120,
+            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+          }}
+        />
       </Stack>
 
-      <Table size="small" sx={compactTableSx}>
-        <TableHead>
-          <TableRow>
-            <TableCell>archive_id</TableCell>
-            <TableCell>title</TableCell>
-            <TableCell>rid</TableCell>
-            <TableCell>datasets</TableCell>
-            <TableCell>tags</TableCell>
-            <TableCell>created</TableCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {items.map((a) => (
-            <TableRow
-              key={a.archive_id}
-              hover
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setContextTarget(a);
-                setContextAnchor({ x: e.clientX, y: e.clientY });
-              }}
-            >
-              <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.archive_id}</TableCell>
-              <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{a.title}</Typography>
-                {a.note && <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{a.note}</Typography>}
-              </TableCell>
-              <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.rid}</TableCell>
-              <TableCell>
-                <Typography variant="caption">{(a.datasets ?? []).join(", ")}</Typography>
-              </TableCell>
-              <TableCell>
-                <Typography variant="caption">{(a.tags ?? []).join(", ")}</Typography>
-              </TableCell>
-              <TableCell>
-                <Typography variant="caption">{new Date(a.created_at).toLocaleString()}</Typography>
-              </TableCell>
-            </TableRow>
-          ))}
-          {items.length === 0 && (
+      <Box sx={{ mt: 0.5, flex: 1, minHeight: 0, overflow: "auto" }}>
+        <Table size="small" stickyHeader sx={compactTableSx}>
+          <TableHead>
             <TableRow>
-              <TableCell colSpan={6} sx={{ color: "text.secondary" }}>
-                No archives.
-              </TableCell>
+              <TableCell>archive_id</TableCell>
+              <TableCell>title</TableCell>
+              <TableCell>rid</TableCell>
+              <TableCell>datasets</TableCell>
+              <TableCell>tags</TableCell>
+              <TableCell>created</TableCell>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {items.map((a) => (
+              <TableRow
+                key={a.archive_id}
+                hover
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setContextTarget(a);
+                  setContextAnchor({ x: e.clientX, y: e.clientY });
+                }}
+              >
+                <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.archive_id}</TableCell>
+                <TableCell>
+                  <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 12 }}>{a.title}</Typography>
+                  {a.note && <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>{a.note}</Typography>}
+                </TableCell>
+                <TableCell sx={{ fontFamily: "var(--mono)" }}>{a.rid}</TableCell>
+                <TableCell>
+                  <Typography variant="caption">{(a.datasets ?? []).join(", ")}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption">{(a.tags ?? []).join(", ")}</Typography>
+                </TableCell>
+                <TableCell>
+                  <Typography variant="caption">{new Date(a.created_at).toLocaleString()}</Typography>
+                </TableCell>
+              </TableRow>
+            ))}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} sx={{ color: "text.secondary" }}>
+                  No archives.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Box>
       <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
         Right-click an archive row for actions.
       </Typography>

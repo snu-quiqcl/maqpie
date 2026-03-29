@@ -1,6 +1,7 @@
 // src/state/store.ts
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
+import { createWindowFrame } from "../lib/windowFrame";
 
 export type ViewType = "runsManager" | "fileExplorer" | "experimentPanel" | "dataViewer" | "archives" | "panelConfigs" | "ttlControls";
 
@@ -24,6 +25,17 @@ export type WindowModel = {
   minimized?: boolean;
 };
 
+export type MinimizedPanelModel = {
+  minimizedId: string;
+  tab: TabModel;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  sourceWindowId?: string;
+};
+
 export type Toast = { id: string; title: string; message: string; ts: number };
 
 type AppState = {
@@ -31,6 +43,7 @@ type AppState = {
   username: string | null;
 
   windows: WindowModel[];
+  minimizedPanels: MinimizedPanelModel[];
   nextZ: number;
 
   toast: Toast | null;
@@ -40,10 +53,14 @@ type AppState = {
 
   bringToFront: (windowId: string) => void;
   moveResizeWindow: (windowId: string, patch: Partial<Pick<WindowModel, "x" | "y" | "w" | "h">>) => void;
+  bringMinimizedPanelToFront: (minimizedId: string) => void;
+  moveMinimizedPanel: (minimizedId: string, patch: Partial<Pick<MinimizedPanelModel, "x" | "y">>) => void;
 
   addWindow: (win: Omit<WindowModel, "z">) => void;
   closeWindow: (windowId: string) => void;
   toggleWindowMinimized: (windowId: string) => void;
+  minimizePanelTab: (windowId: string, tabId: string) => void;
+  restoreMinimizedPanel: (minimizedId: string) => void;
 
   addTabToWindow: (windowId: string, tab: TabModel, activate?: boolean) => void;
   closeTab: (windowId: string, tabId: string) => void;
@@ -104,15 +121,32 @@ function sanitizeWindow(w: any): WindowModel | null {
   };
 }
 
+function sanitizeMinimizedPanel(p: any): MinimizedPanelModel | null {
+  if (!p || typeof p !== "object") return null;
+  const tab = sanitizeTab(p.tab);
+  if (!tab || tab.view !== "experimentPanel") return null;
+  return {
+    minimizedId: String(p.minimizedId ?? uid("mini")),
+    tab,
+    x: toNumber(p.x, 80),
+    y: toNumber(p.y, 120),
+    w: toNumber(p.w, 188),
+    h: toNumber(p.h, 132),
+    z: toNumber(p.z, 1),
+    sourceWindowId: p.sourceWindowId ? String(p.sourceWindowId) : undefined,
+  };
+}
+
 /** Singleton: Experiment Manager */
 function defaultRunsManager(): WindowModel {
   const tabId = uid("tab");
+  const frame = createWindowFrame("runsManager");
   return {
     windowId: "win_runs_manager",
-    x: 10,
-    y: 64,
-    w: 620,
-    h: 360,
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
     z: 1,
     locked: true,
     tabs: [{ tabId, title: "Experiment Manager", view: "runsManager", props: {} }],
@@ -123,12 +157,13 @@ function defaultRunsManager(): WindowModel {
 /** Singleton: File Explorer (defaults to your scripts directory) */
 function defaultFileExplorer(): WindowModel {
   const tabId = uid("tab");
+  const frame = createWindowFrame("fileExplorer");
   return {
     windowId: "win_file_explorer",
-    x: 760,
-    y: 64,
-    w: 500,
-    h: 440,
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
     z: 1,
     locked: true,
     tabs: [
@@ -150,6 +185,7 @@ export const useAppStore = create<AppState>()(
     username: localStorage.getItem("username") ?? null,
 
     windows: [],
+    minimizedPanels: [],
     nextZ: 2,
     toast: null,
 
@@ -181,6 +217,24 @@ export const useAppStore = create<AppState>()(
       get().persist();
     },
 
+    bringMinimizedPanelToFront: (minimizedId) => {
+      set((s) => {
+        const p = s.minimizedPanels.find((x) => x.minimizedId === minimizedId);
+        if (!p) return;
+        p.z = s.nextZ++;
+      });
+      get().persist();
+    },
+
+    moveMinimizedPanel: (minimizedId, patch) => {
+      set((s) => {
+        const p = s.minimizedPanels.find((x) => x.minimizedId === minimizedId);
+        if (!p) return;
+        Object.assign(p, patch);
+      });
+      get().persist();
+    },
+
     addWindow: (win) => {
       set((s) => {
         s.windows.push({ ...win, z: s.nextZ++ });
@@ -202,6 +256,73 @@ export const useAppStore = create<AppState>()(
         const w = s.windows.find((x) => x.windowId === windowId);
         if (!w) return;
         w.minimized = !w.minimized;
+      });
+      get().persist();
+    },
+
+    minimizePanelTab: (windowId, tabId) => {
+      set((s) => {
+        const w = s.windows.find((x) => x.windowId === windowId);
+        if (!w) return;
+        if (!w.tabs.every((t) => t.view === "experimentPanel")) return;
+        const tab = w.tabs.find((t) => t.tabId === tabId);
+        if (!tab) return;
+
+        w.tabs = w.tabs.filter((t) => t.tabId !== tabId);
+        if (w.activeTabId === tabId) {
+          w.activeTabId = w.tabs[0]?.tabId ?? "";
+        }
+
+        s.minimizedPanels.push({
+          minimizedId: uid("mini"),
+          tab,
+          x: w.x + 24,
+          y: w.y + 40,
+          w: 188,
+          h: 132,
+          z: s.nextZ++,
+          sourceWindowId: windowId,
+        });
+
+        if (!w.locked && w.tabs.length === 0) {
+          s.windows = s.windows.filter((x) => x.windowId !== windowId);
+        }
+      });
+      get().persist();
+    },
+
+    restoreMinimizedPanel: (minimizedId) => {
+      set((s) => {
+        const idx = s.minimizedPanels.findIndex((x) => x.minimizedId === minimizedId);
+        if (idx < 0) return;
+        const mini = s.minimizedPanels[idx];
+
+        const target =
+          (mini.sourceWindowId
+            ? s.windows.find((w) => w.windowId === mini.sourceWindowId && w.tabs.every((t) => t.view === "experimentPanel"))
+            : undefined) ??
+          s.windows.find((w) => !w.locked && w.tabs.every((t) => t.view === "experimentPanel"));
+
+        if (target) {
+          target.tabs.push(mini.tab);
+          target.activeTabId = mini.tab.tabId;
+          target.z = s.nextZ++;
+        } else {
+          const frame = createWindowFrame("experimentPanel", 18);
+          s.windows.push({
+            windowId: uid("win"),
+            x: frame.x,
+            y: frame.y,
+            w: frame.w,
+            h: frame.h,
+            z: s.nextZ++,
+            locked: false,
+            tabs: [mini.tab],
+            activeTabId: mini.tab.tabId,
+          });
+        }
+
+        s.minimizedPanels.splice(idx, 1);
       });
       get().persist();
     },
@@ -314,12 +435,13 @@ export const useAppStore = create<AppState>()(
         w.tabs = w.tabs.filter((t) => t.tabId !== tabId);
         if (w.activeTabId === tabId) w.activeTabId = w.tabs[0]?.tabId ?? "";
 
+        const frame = createWindowFrame(tab.view, 24);
         const win: WindowModel = {
           windowId: uid("win"),
-          x: w.x + 30,
-          y: w.y + 30,
-          w: Math.max(420, w.w - 40),
-          h: Math.max(320, w.h - 40),
+          x: frame.x,
+          y: frame.y,
+          w: frame.w,
+          h: frame.h,
           z: s.nextZ++,
           locked: false,
           tabs: [tab],
@@ -364,6 +486,7 @@ export const useAppStore = create<AppState>()(
       const s = get();
       const payload = {
         windows: s.windows,
+        minimizedPanels: s.minimizedPanels,
         nextZ: s.nextZ,
       };
       localStorage.setItem(LS_KEY, JSON.stringify(payload));
@@ -377,8 +500,11 @@ export const useAppStore = create<AppState>()(
           const parsed = JSON.parse(raw);
           const windowsRaw = Array.isArray(parsed.windows) ? parsed.windows : [];
           const safeWindows = windowsRaw.map(sanitizeWindow).filter(Boolean) as WindowModel[];
+          const minimizedRaw = Array.isArray(parsed.minimizedPanels) ? parsed.minimizedPanels : [];
+          const safeMinimized = minimizedRaw.map(sanitizeMinimizedPanel).filter(Boolean) as MinimizedPanelModel[];
           set((s) => {
             s.windows = safeWindows;
+            s.minimizedPanels = safeMinimized;
             s.nextZ = toNumber(parsed.nextZ, 2);
 
             // Ensure singletons exist
@@ -401,6 +527,7 @@ export const useAppStore = create<AppState>()(
             // normalize nextZ from actual z values
             let maxZ = 1;
             for (const w of s.windows) maxZ = Math.max(maxZ, w.z ?? 1);
+            for (const p of s.minimizedPanels) maxZ = Math.max(maxZ, p.z ?? 1);
             s.nextZ = Math.max(maxZ + 1, s.nextZ);
           });
           return;
@@ -412,6 +539,7 @@ export const useAppStore = create<AppState>()(
       // default layout
       set((s) => {
         s.windows = [defaultRunsManager(), defaultFileExplorer()];
+        s.minimizedPanels = [];
         s.nextZ = 3;
       });
     },

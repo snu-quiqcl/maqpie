@@ -122,6 +122,32 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+async function download(path: string, suggestedName?: string): Promise<void> {
+  const base = getApiBase();
+  const url = base ? `${base}${path}` : path;
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Token ${token}`;
+
+  const resp = await fetch(url, { method: "GET", headers });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(text.slice(0, 200) || `HTTP ${resp.status}`);
+  }
+
+  const blob = await resp.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const disposition = resp.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/i);
+  link.href = objectUrl;
+  link.download = match?.[1] || suggestedName || "download.bin";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 function normalizePriority(p?: number | string): Priority {
   if (typeof p === "number") {
     if (Number.isFinite(p)) return p as Priority;
@@ -316,6 +342,8 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  downloadDatasetRaw: (rid: number, dataset_name: string) =>
+    download(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.h5`),
   queryDataset: (rid: number, dataset_name: string, body: { query: string; slice?: string }) =>
     request<DatasetQueryResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
       method: "POST",
@@ -350,6 +378,8 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  downloadArchivedDatasetRaw: (archive_id: number, dataset_name: string) =>
+    download(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.h5`),
   queryArchivedDataset: (archive_id: number, dataset_name: string, body: { query: string; slice?: string }) =>
     request<DatasetQueryResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
       method: "POST",
