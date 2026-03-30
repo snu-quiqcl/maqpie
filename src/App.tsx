@@ -2,7 +2,6 @@
 import { useEffect, useState } from "react";
 import { Box, Button, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
-import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import type { WindowModel } from "./state/store";
 import Window from "./components/Window";
 import MinimizedPanelCard from "./components/MinimizedPanelCard";
@@ -12,7 +11,7 @@ import { api, getApiBase, setToken, setUserId } from "./lib/api";
 import { createWindowFrame } from "./lib/windowFrame";
 import { useAppStore } from "./state/store";
 import longLogo from "./assets/longlogo.png";
-import magpieLogo from "./assets/magpie.png";
+import maqpieLogo from "./assets/maqpie_text.png";
 import { workspaceConfig } from "./config/workspace";
 
 const initialWorkspaceTabs = [
@@ -21,6 +20,7 @@ const initialWorkspaceTabs = [
 const WORKSPACE_PREVIEW_LS_KEY = "workspace_preview_tabs_v1";
 const WORKSPACE_PREVIEW_ACTIVE_LS_KEY = "workspace_preview_active_v1";
 
+// Small local ids are enough here because these tabs/windows only live in client state.
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -69,10 +69,9 @@ export default function App() {
     state: "checking",
     detail: "Checking backend...",
   });
-  const activeWorkspaceName = workspaceTabs.find((workspace) => workspace.workspaceId === activeWorkspaceTabId)?.name ?? "Main";
-  const activeWorkspaceIsMain = activeWorkspaceTabId === "workspace_main";
 
   useEffect(() => {
+    // Keep the workspace strip as a lightweight client-side affordance for now.
     try {
       const rawTabs = localStorage.getItem(WORKSPACE_PREVIEW_LS_KEY);
       const rawActive = localStorage.getItem(WORKSPACE_PREVIEW_ACTIVE_LS_KEY);
@@ -114,6 +113,14 @@ export default function App() {
   useEffect(() => {
     setActiveWorkspaceId(activeWorkspaceTabId);
   }, [activeWorkspaceTabId, setActiveWorkspaceId]);
+
+  useEffect(() => {
+    if (!authed) return;
+    // Each workspace gets its own singleton windows the first time it becomes active.
+    const store = useAppStore.getState();
+    store.openOrFocusSingletonRunsManager();
+    store.openOrFocusSingletonFileExplorer();
+  }, [activeWorkspaceTabId, authed]);
 
 
   const popoutParams = new URLSearchParams(window.location.search);
@@ -481,6 +488,7 @@ export default function App() {
       {!authed ? (
         <div className="loginScreen">
           <div className="loginBackdrop" />
+          <img className="loginQuiqclCorner" src={longLogo} alt="QUIQCL logo" />
           <Paper
             variant="outlined"
             sx={{
@@ -506,9 +514,8 @@ export default function App() {
             </Typography>
           </Paper>
           <div className="loginCard">
-            <div className="loginLogoRow">
-              <img className="loginLogo loginLogoQuiqcl" src={longLogo} alt="QUIQCL logo" />
-              <img className="loginLogo loginLogoMagpie" src={magpieLogo} alt="MAQPIE logo" />
+            <div className="loginHero">
+              <img className="loginLogo loginLogoMaqpie" src={maqpieLogo} alt="MAQPIE logo" />
             </div>
             <Typography className="loginTitle">Sign in</Typography>
             <Stack className="loginForm" spacing={1.25}>
@@ -555,19 +562,16 @@ export default function App() {
 
         <div className="launcherRow">
           <Stack direction="row" spacing={0.5}>
-            <Button size="small" variant="outlined" onClick={openPanelConfigs}>Panel Configs</Button>
-            <Button size="small" variant="outlined" onClick={openOrFocusFE}>File Explorer</Button>
-            <Button size="small" variant="outlined" onClick={openArchives}>Archives</Button>
-            <Button size="small" variant="outlined" onClick={openTtlControls}>TTL</Button>
+            <Button size="small" variant="outlined" className="launcherButton launcherButtonAccent" onClick={openPanelConfigs}>Panel Configs</Button>
+            <Button size="small" variant="outlined" className="launcherButton launcherButtonAccent" onClick={openArchives}>Archives</Button>
+            <Button size="small" variant="outlined" className="launcherButton launcherButtonAccent" onClick={openTtlControls}>TTL</Button>
           </Stack>
         </div>
 
-        <div className="pill workspacePill">
-          <Typography variant="caption" color="text.secondary">Team</Typography>
-          <Typography variant="body2">{workspaceConfig.teamName}</Typography>
-        </div>
-
         <div className="topbarRight">
+          <Box className="pill workspacePill" sx={{ mr: 0.75 }}>
+            <Typography variant="body2">{workspaceConfig.teamName}</Typography>
+          </Box>
           <Box className="pill" sx={{ gap: 1 }}>
             <Typography variant="caption" color="text.secondary">User</Typography>
             <Typography variant="body2">{username ?? localStorage.getItem("username") ?? "?"}</Typography>
@@ -603,17 +607,16 @@ export default function App() {
       </div>
       )}
 
-      <div className={`workspaceIndicator ${activeWorkspaceIsMain ? "" : "workspaceIndicatorAlt"}`}>
-        <span className={`workspaceIndicatorDot ${activeWorkspaceIsMain ? "" : "alt"}`} />
-        Workspace: {activeWorkspaceName}
-      </div>
-
       <div className="workspaceStrip workspaceStripPreview">
         <div className="workspaceTabs">
           {workspaceTabs.map((workspace) => (
             <div
               key={workspace.workspaceId}
               className={`workspaceTab ${workspace.workspaceId === activeWorkspaceTabId ? "active" : ""}`}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                openWorkspaceMenu(workspace.workspaceId, e.currentTarget);
+              }}
             >
               {editingWorkspaceId === workspace.workspaceId ? (
                 <input
@@ -636,14 +639,6 @@ export default function App() {
                   {workspace.name}
                 </button>
               )}
-              <button
-                type="button"
-                className="workspaceTabMore"
-                onClick={(e) => openWorkspaceMenu(workspace.workspaceId, e.currentTarget)}
-                aria-label={`Workspace actions for ${workspace.name}`}
-              >
-                <MoreHorizIcon fontSize="inherit" />
-              </button>
             </div>
           ))}
           <button type="button" className="workspaceAdd" onClick={addWorkspacePreviewTab}>

@@ -44,6 +44,7 @@ type DatasetMeta = {
   metadata?: Record<string, any>;
 };
 
+// Dataset patches arrive as either full snapshots or incremental row appends.
 type PatchMsg =
   | {
       rid: number;
@@ -97,6 +98,7 @@ function buildObjectFields(data: unknown[]): string[] {
 }
 
 function getFieldValue(row: DataRow, field: string, index: number, arrayColumns?: string[]): number | null {
+  // Data can arrive as arrays, objects, or scalars depending on backend/query mode.
   if (field === "index") return index;
   if (Array.isArray(row)) {
     let idx = -1;
@@ -161,6 +163,7 @@ function extractScalarValue(raw: unknown): number | null {
   return null;
 }
 
+// The Data Viewer handles live runs and archived datasets through the same plotting/query surface.
 export default function DataViewerView({ rid, datasetName, archiveId }: { rid: number; datasetName?: string; archiveId?: number }) {
   const showToast = useAppStore((s) => s.showToast);
 
@@ -198,7 +201,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const [archiveNote, setArchiveNote] = useState("");
   const [archiveDatasets, setArchiveDatasets] = useState<string[]>([]);
 
-  // If you pass rid=0 (placeholder), show a helpful message.
+  // Some tabs are opened before a concrete run is selected.
   const ridValid = rid && rid > 0;
   const archiveMode = Boolean(archiveId);
 
@@ -612,9 +615,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     return (
       <Paper variant="outlined" sx={{ p: 1.5 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>Data Viewer</Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-          Select a run (rid) from the Experiment Manager, then open a Data Viewer tab for that run.
-        </Typography>
       </Paper>
     );
   }
@@ -623,14 +623,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     return (
       <Paper variant="outlined" sx={{ p: 1.25 }}>
         <Stack spacing={1}>
-          <Box>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
-            </Typography>
-            <Typography variant="caption" color="text.secondary">
-              {selected || meta?.name || "Scalar dataset"}
-            </Typography>
-          </Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+            {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
+          </Typography>
           <Box
             sx={{
               minHeight: 140,
@@ -642,9 +637,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             }}
           >
             <Stack spacing={0.75} alignItems="center">
-              <Typography variant="caption" color="text.secondary">
-                Scalar value
-              </Typography>
               <Typography sx={{ fontSize: 44, fontWeight: 800, lineHeight: 1, fontFamily: "var(--mono)" }}>
                 {scalarValue !== null ? String(scalarValue) : "-"}
               </Typography>
@@ -663,12 +655,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   return (
     <Paper variant="outlined" sx={{ p: 1.05 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.75}>
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-            {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
-          </Typography>
-          <Typography variant="caption" color="text.secondary">{archiveMode ? "Archived dataset" : "Dataset viewer"}</Typography>
-        </Box>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+          {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
+        </Typography>
         <Stack direction="row" spacing={0.75} alignItems="center">
           {!archiveMode && (
             <FormControlLabel
@@ -732,8 +721,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         </Stack>
       </Stack>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: "224px 1fr", gap: 0.85, mt: 0.85 }}>
-        <Box>
+      <Box sx={{ display: "grid", gridTemplateColumns: "224px 1fr", gap: 0.85, mt: 0.85, minHeight: 0, flex: 1 }}>
+        {/* Keep controls independently scrollable so dense datasets do not push the plot off-screen. */}
+        <Box sx={{ minHeight: 0, maxHeight: "100%", overflow: "auto", pr: 0.25 }}>
           <Box sx={{ ...sectionSx, mt: 0 }}>
             <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
               Dataset
@@ -751,11 +741,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 </MenuItem>
               ))}
             </Select>
-            {datasets.length === 0 && !loading ? (
-              <Typography variant="caption" color="text.secondary" sx={{ mt: 0.65, display: "block" }}>
-                No datasets available yet.
-              </Typography>
-            ) : null}
             <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.6 }}>
               <Typography variant="caption" color="text.secondary">
                 Advanced query
@@ -988,17 +973,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             </>
           )}
 
-          <Box sx={{ mt: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              {queryActive ? "Showing transformed query results." : "Select axes to explore the dataset."}
-            </Typography>
-          </Box>
         </Box>
 
-        <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
-            Live plot
-          </Typography>
+        <Box sx={{ minHeight: 0 }}>
           <Typography variant="caption" color="text.secondary">
             rows: {Array.isArray(data) ? data.length : 0}
             {schemaMode
@@ -1023,9 +1000,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
             />
           </Box>
 
-          <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-            The plot updates live from streaming patches.
-          </Typography>
         </Box>
       </Box>
 

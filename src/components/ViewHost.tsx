@@ -7,6 +7,7 @@ import ArchivesView from "../views/ArchivesView";
 import PanelConfigsView from "../views/PanelConfigsView";
 import TTLControlsView from "../views/TTLControlsView";
 
+// ViewHost is the single routing point from stored tab state to concrete React views.
 export default function ViewHost({ tab, compact, windowId }: { tab: TabModel; compact?: boolean; windowId?: string }) {
   const props = tab.props && typeof tab.props === "object" ? tab.props : {};
   const defaultPath = typeof props.defaultPath === "string" ? props.defaultPath : undefined;

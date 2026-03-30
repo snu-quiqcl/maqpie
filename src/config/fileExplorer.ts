@@ -1,11 +1,25 @@
 import type { FileType } from "../lib/types";
 
-export const fileExplorerConfig: {
+type FileExplorerConfig = {
   defaultType: FileType;
+  availableTypes: FileType[];
   showTypeToggle: boolean;
-  allowedExtensions: string[];
-} = {
+  allowedExtensions: Partial<Record<FileType, string[]>>;
+  rootLabels: Partial<Record<FileType, string>>;
+};
+
+// FileType defines the full set of supported backend file domains.
+// This config decides which of those domains are exposed in this UI build.
+export const fileExplorerConfig: FileExplorerConfig = {
   defaultType: "script",
+  availableTypes: ["script", "fpga"],
   showTypeToggle: true,
-  allowedExtensions: [".qil"],
+  allowedExtensions: {
+    script: [".qil"],
+    fpga: [".py"],
+  },
+  rootLabels: {
+    script: "/user_scripts",
+    fpga: "/user_fpga",
+  },
 };

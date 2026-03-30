@@ -1,6 +1,7 @@
 import type { WindowModel } from "../state/store";
 import { useAppStore } from "../state/store";
 
+// Whole-window minimization uses a dock-like restore item instead of leaving the full window onscreen.
 export default function MinimizedWindowItem({ model }: { model: WindowModel }) {
   const toggleWindowMinimized = useAppStore((s) => s.toggleWindowMinimized);
   const bringToFront = useAppStore((s) => s.bringToFront);

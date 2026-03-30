@@ -17,8 +17,8 @@
   --login-grid: rgba(255,255,255,0.035);
   --login-logo-shadow: rgba(0,0,0,0.35);
   --radius: 12px;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+  --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --sans: "IBM Plex Sans", "IBM Plex Sans Condensed", "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 body[data-theme="arctic"] {
@@ -178,9 +178,9 @@ body[data-theme="mint"] .tabAction {
   color: var(--text) !important;
 }
 
-body[data-theme="paper"] .titlebar .actions button,
-body[data-theme="sunrise"] .titlebar .actions button,
-body[data-theme="mint"] .titlebar .actions button,
+body[data-theme="paper"] .titlebar .actions button:not(.trafficButton),
+body[data-theme="sunrise"] .titlebar .actions button:not(.trafficButton),
+body[data-theme="mint"] .titlebar .actions button:not(.trafficButton),
 body[data-theme="paper"] .tabAction,
 body[data-theme="sunrise"] .tabAction,
 body[data-theme="mint"] .tabAction {
@@ -206,9 +206,9 @@ body[data-theme="mint"] .MuiToggleButton-root.Mui-selected {
   background: rgba(0, 0, 0, 0.08) !important;
 }
 
-body[data-theme="paper"] .titlebar .actions button:hover,
-body[data-theme="sunrise"] .titlebar .actions button:hover,
-body[data-theme="mint"] .titlebar .actions button:hover,
+body[data-theme="paper"] .titlebar .actions button:not(.trafficButton):hover,
+body[data-theme="sunrise"] .titlebar .actions button:not(.trafficButton):hover,
+body[data-theme="mint"] .titlebar .actions button:not(.trafficButton):hover,
 body[data-theme="paper"] .tabAction:hover,
 body[data-theme="sunrise"] .tabAction:hover,
 body[data-theme="mint"] .tabAction:hover {
@@ -393,7 +393,6 @@ hr {
 
 .workspacePill {
   gap: 5px;
-  min-width: 240px;
   justify-content: space-between;
 }
 
@@ -477,44 +476,6 @@ hr {
   pointer-events: none;
 }
 
-.workspaceIndicator {
-  position: fixed;
-  left: 14px;
-  bottom: 52px;
-  z-index: 6400;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in srgb, var(--border) 88%, white 6%);
-  background: color-mix(in srgb, var(--panel2) 82%, transparent);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  box-shadow: 0 8px 18px rgba(0,0,0,0.08);
-  backdrop-filter: blur(12px) saturate(1.04);
-  pointer-events: none;
-}
-
-.workspaceIndicatorAlt {
-  color: var(--text);
-  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel2) 86%);
-}
-
-.workspaceIndicatorDot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--muted) 80%, transparent);
-  flex: 0 0 auto;
-}
-
-.workspaceIndicatorDot.alt {
-  background: var(--accent);
-}
-
 .workspaceTabs {
   pointer-events: auto;
   display: inline-flex;
@@ -543,8 +504,7 @@ hr {
   min-width: 94px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
+  padding: 2px 8px;
 }
 
 .workspaceTab.active {
@@ -580,35 +540,10 @@ hr {
   background: color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
-.workspaceTabMore {
-  border: none;
-  background: transparent;
-  color: inherit;
-  min-height: 0;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 999px;
-}
-
-.workspaceTabMore:hover {
-  background: rgba(255,255,255,0.08);
-}
-
 .workspaceAdd {
   min-width: 28px;
   padding-inline: 0;
   font-size: 15px;
-}
-
-body.grid-visible .desktop {
-  background-image:
-    linear-gradient(0deg, rgba(255,255,255,0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-position: 0 0;
 }
 
 .resize-grip-bottom {
@@ -718,44 +653,53 @@ body.grid-visible .desktop {
 
 .loginCard {
   position: relative;
-  width: min(420px, 92vw);
-  padding: 28px 22px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.45);
+  width: min(440px, 92vw);
+  padding: 30px 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(245,248,252,0.94));
+  color: #16202b;
+  border: none;
+  border-radius: 22px;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.32);
   animation: cardIn 400ms ease-out both;
 }
 
-.loginLogoRow {
+.loginQuiqclCorner {
+  position: absolute;
+  top: 22px;
+  left: 24px;
+  width: min(180px, 24vw);
+  height: auto;
+  display: block;
+  filter: brightness(1.1) drop-shadow(0 8px 18px rgba(0,0,0,0.3));
+  z-index: 1;
+}
+
+.loginHero {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(84px, 0.65fr);
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
+  place-items: center;
+  margin-bottom: 16px;
+  padding-top: 4px;
 }
 
 .loginLogo {
   width: 100%;
   height: auto;
   display: block;
-  filter: drop-shadow(0 8px 18px var(--login-logo-shadow));
-  animation: logoFloat 5s ease-in-out infinite;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.14));
+  animation: none;
 }
 
-.loginLogoQuiqcl {
-  max-width: 100%;
-}
-
-.loginLogoMagpie {
-  max-width: 108px;
-  justify-self: end;
+.loginLogoMaqpie {
+  max-width: 340px;
 }
 
 .loginTitle {
-  font-weight: 700;
+  font-weight: 800;
+  font-size: 28px;
+  line-height: 1.1;
   letter-spacing: 0.2px;
   margin-bottom: 0;
+  text-align: center;
 }
 
 .loginSub {
@@ -1146,4 +1090,31 @@ body.grid-visible .desktop {
   padding: 10px;
   height: 260px;
   overflow: auto;
+}
+
+
+.loginCard .MuiTypography-root,
+.loginCard .loginTitle,
+.loginCard .MuiInputBase-input,
+.loginCard .MuiInputLabel-root,
+.loginCard .MuiFormHelperText-root,
+.loginCard .MuiButton-root { color: #16202b !important; }
+.loginCard .MuiInputBase-root { background: rgba(255,255,255,0.8); }
+.loginCard .MuiFormLabel-root { color: rgba(22,32,43,0.72); }
+.loginCard .MuiOutlinedInput-notchedOutline { border-color: rgba(22,32,43,0.16); }
+.loginCard .MuiButton-outlined { color: #16202b; border-color: rgba(22,32,43,0.2); }
+
+.loginCard .MuiOutlinedInput-input { color: #16202b !important; }
+.loginCard .MuiButton-contained { color: #fff !important; }
+
+
+.launcherButtonAccent {
+  background: color-mix(in srgb, var(--accent) 14%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border) 60%) !important;
+  color: var(--text) !important;
+}
+
+.launcherButtonAccent:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--border) 42%) !important;
 }

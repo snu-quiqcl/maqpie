@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, Button, Chip, Paper, Select, MenuItem, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
+import { Button, Chip, Paper, Select, MenuItem, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, Typography } from "@mui/material";
 import { api, wsUrl } from "../lib/api";
 import { useAppStore } from "../state/store";
 
@@ -10,6 +10,7 @@ type TtlItem = {
   value: boolean;
 };
 
+// TTL controls keep a small local mirror so websocket updates and manual overrides stay in sync.
 export default function TTLControlsView() {
   const showToast = useAppStore((s) => s.showToast);
   const [devices, setDevices] = useState<string[]>([]);
@@ -113,10 +114,7 @@ export default function TTLControlsView() {
   return (
     <Paper variant="outlined" sx={{ p: 1.25 }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between">
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>TTL Controls</Typography>
-          <Typography variant="caption" color="text.secondary">Mock hardware endpoints</Typography>
-        </Box>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>TTL Controls</Typography>
         <Button size="small" variant="outlined" onClick={() => window.location.reload()}>
           Refresh
         </Button>

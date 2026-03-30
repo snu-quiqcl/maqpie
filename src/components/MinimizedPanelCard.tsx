@@ -3,6 +3,7 @@ import type { MinimizedPanelModel } from "../state/store";
 import { useAppStore } from "../state/store";
 import ExperimentPanelView from "../views/ExperimentPanelView";
 
+// Minimized panels stay interactive so the user can still queue or inspect a panel while it floats.
 export default function MinimizedPanelCard({ model }: { model: MinimizedPanelModel }) {
   const bringToFront = useAppStore((s) => s.bringMinimizedPanelToFront);
   const moveMinimizedPanel = useAppStore((s) => s.moveMinimizedPanel);

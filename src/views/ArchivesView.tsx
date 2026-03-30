@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import type { ArchiveItem } from "../lib/types";
 import { useAppStore } from "../state/store";
 
+// Archives are immutable-ish data snapshots that reopen straight into the Data Viewer.
 export default function ArchivesView() {
   const showToast = useAppStore((s) => s.showToast);
   const addWindow = useAppStore((s) => s.addWindow);
@@ -112,12 +113,11 @@ export default function ArchivesView() {
       </Stack>
 
       <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.75 }}>
-        <Typography variant="caption" color="text.secondary">Tag filter</Typography>
         <TextField
           size="small"
           value={tag}
           onChange={(e) => setTag(e.target.value)}
-          placeholder="paper"
+          placeholder="Tag"
           sx={{
             minWidth: 120,
             "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
@@ -175,9 +175,6 @@ export default function ArchivesView() {
           </TableBody>
         </Table>
       </Box>
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
-        Right-click an archive row for actions.
-      </Typography>
 
       <Menu
         open={Boolean(contextTarget && contextAnchor)}
@@ -226,9 +223,6 @@ export default function ArchivesView() {
         <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Rename archive</DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 1, pt: 1.5 }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Archive title
-            </Typography>
             <TextField
               size="small"
               value={renameTitle}

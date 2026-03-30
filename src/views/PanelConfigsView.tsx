@@ -6,6 +6,7 @@ import type { PanelConfigListItem } from "../lib/types";
 import { useAppStore } from "../state/store";
 import { panelOpenConfig } from "../config/panels";
 
+// Panel configuration snapshots are separate from live panels so users can reopen known-good setups quickly.
 export default function PanelConfigsView() {
   const showToast = useAppStore((s) => s.showToast);
   const windows = useAppStore((s) => s.windows);
@@ -135,10 +136,7 @@ export default function PanelConfigsView() {
       sx={{ p: 1, bgcolor: "background.paper", height: "100%", display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
     >
       <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={0.75} sx={{ mb: 0.75 }}>
-        <Box>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Panel Configurations</Typography>
-          <Typography variant="caption" color="text.secondary">Saved configuration snapshots</Typography>
-        </Box>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Panel Configurations</Typography>
         <Button size="small" variant="outlined" onClick={refresh} disabled={loading}>
           Refresh
         </Button>
@@ -153,7 +151,7 @@ export default function PanelConfigsView() {
           InputLabelProps={{ sx: compactFilterLabelSx }}
           sx={{
             minWidth: 100,
-            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+            "& .MuiInputBase-input": { py: "5px", fontSize: 11.5 },
           }}
         />
         <TextField
@@ -164,7 +162,7 @@ export default function PanelConfigsView() {
           InputLabelProps={{ sx: compactFilterLabelSx }}
           sx={{
             minWidth: 140,
-            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+            "& .MuiInputBase-input": { py: "5px", fontSize: 11.5 },
           }}
         />
         <TextField
@@ -175,7 +173,7 @@ export default function PanelConfigsView() {
           InputLabelProps={{ sx: compactFilterLabelSx }}
           sx={{
             minWidth: 120,
-            "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+            "& .MuiInputBase-input": { py: "5px", fontSize: 11.5 },
           }}
         />
         <Button size="small" variant="contained" onClick={refresh} disabled={loading}>
@@ -230,9 +228,6 @@ export default function PanelConfigsView() {
           </Table>
         </Box>
       )}
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block" }}>
-        Right-click a config row for actions.
-      </Typography>
 
       <Menu
         open={Boolean(contextTarget && contextAnchor)}
@@ -310,9 +305,6 @@ export default function PanelConfigsView() {
         <DialogTitle sx={{ pb: 1, borderBottom: "1px solid var(--border)" }}>Rename config</DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 1, pt: 1.5 }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Configuration title
-            </Typography>
             <TextField
               size="small"
               value={renameTitle}

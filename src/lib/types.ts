@@ -38,6 +38,7 @@ export type PanelCreateReq = {
   tags?: string[];
 };
 
+// PanelResp is intentionally richer than the runtime run payload because it drives both UI rendering and queue defaults.
 export type PanelResp = {
   panel_id: string;
   config_id?: string | null;

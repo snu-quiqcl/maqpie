@@ -8,6 +8,7 @@ import { useAppStore } from "../state/store";
 import type { WindowModel } from "../state/store";
 import ViewHost from "./ViewHost";
 
+// This component owns freeform dragging/resizing plus the tab-strip chrome for each desktop window.
 export default function Window({ model }: { model: WindowModel }) {
   const bringToFront = useAppStore((s) => s.bringToFront);
   const moveResizeWindow = useAppStore((s) => s.moveResizeWindow);
@@ -23,7 +24,6 @@ export default function Window({ model }: { model: WindowModel }) {
     [model]
   );
   const isPanelWindow = model.tabs.every((t) => t.view === "experimentPanel");
-  const grid = 24;
   const minWidth = 260;
   const minHeight = 120;
 
@@ -47,18 +47,7 @@ export default function Window({ model }: { model: WindowModel }) {
     mode: "width" | "height" | "both";
   } | null>(null);
 
-  function showGrid() {
-    document.body.classList.add("grid-visible");
-  }
-
-  function hideGrid() {
-    document.body.classList.remove("grid-visible");
-  }
-
-  function snap(n: number) {
-    return Math.round(n / grid) * grid;
-  }
-
+  // Clamp movement/resizing against the desktop rather than the full browser viewport.
   function getBounds() {
     const desktop = document.querySelector(".desktop") as HTMLElement | null;
     const rect = desktop?.getBoundingClientRect();
@@ -75,7 +64,6 @@ export default function Window({ model }: { model: WindowModel }) {
   function startDrag(e: React.PointerEvent) {
     if (e.button !== 0) return;
     e.preventDefault();
-    showGrid();
     bringToFront(model.windowId);
 
     dragState.current = {
@@ -91,8 +79,8 @@ export default function Window({ model }: { model: WindowModel }) {
       if (!dragState.current) return;
       const dx = ev.clientX - dragState.current.startX;
       const dy = ev.clientY - dragState.current.startY;
-      const nextX = snap(dragState.current.originX + dx);
-      const nextY = snap(dragState.current.originY + dy);
+      const nextX = dragState.current.originX + dx;
+      const nextY = dragState.current.originY + dy;
       const maxX = width - model.w;
       const maxY = height - model.h;
       moveResizeWindow(model.windowId, {
@@ -102,7 +90,6 @@ export default function Window({ model }: { model: WindowModel }) {
     }
 
     function onUp() {
-      hideGrid();
       dragState.current = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
@@ -115,7 +102,6 @@ export default function Window({ model }: { model: WindowModel }) {
   function startResize(mode: "width" | "height" | "both", e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
-    showGrid();
     bringToFront(model.windowId);
 
     resizeState.current = {
@@ -137,10 +123,10 @@ export default function Window({ model }: { model: WindowModel }) {
       let nextW = resizeState.current.startW;
       let nextH = resizeState.current.startH;
       if (resizeState.current.mode === "both" || resizeState.current.mode === "width") {
-        nextW = snap(resizeState.current.startW + dx);
+        nextW = resizeState.current.startW + dx;
       }
       if (resizeState.current.mode === "both" || resizeState.current.mode === "height") {
-        nextH = snap(resizeState.current.startH + dy);
+        nextH = resizeState.current.startH + dy;
       }
       nextW = Math.max(minWidth, Math.min(nextW, maxW));
       nextH = Math.max(minHeight, Math.min(nextH, maxH));
@@ -148,7 +134,6 @@ export default function Window({ model }: { model: WindowModel }) {
     }
 
     function onUp() {
-      hideGrid();
       resizeState.current = null;
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);

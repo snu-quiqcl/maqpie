@@ -26,6 +26,7 @@ export function sanitizeWorkspaceMeta(value: unknown): WorkspaceMeta | null {
   return { workspaceId, name };
 }
 
+// The preview workspace strip always needs at least Main, even if stored state is empty or corrupt.
 export function ensureWorkspaceList(items: WorkspaceMeta[] | null | undefined): WorkspaceMeta[] {
   if (Array.isArray(items) && items.length > 0) return items;
   return [{ workspaceId: DEFAULT_WORKSPACE_ID, name: DEFAULT_WORKSPACE_NAME }];

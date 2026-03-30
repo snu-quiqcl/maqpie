@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createWindowFrame } from "../lib/windowFrame";
 import { Box, Button, Checkbox, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, Menu, MenuItem, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from "@mui/material";
 import { api, normalizeRun, wsUrl } from "../lib/api";
@@ -13,6 +13,7 @@ function statusColor(s: RunStatus): "success" | "warning" | "error" | "info" {
   return "error";
 }
 
+// The run list is fed by a websocket snapshot stream so status changes show up without polling.
 export default function RunsManagerView() {
   const showToast = useAppStore((s) => s.showToast);
   const windows = useAppStore((s) => s.windows);
@@ -137,7 +138,6 @@ export default function RunsManagerView() {
     }
   }
 
-  const countActive = useMemo(() => items.filter((x) => ["QUEUED", "RUNNING"].includes(x.status)).length, [items]);
   const compactTableSx = {
     mt: 0.75,
     "& .MuiTableCell-root": { py: 0.45, px: 0.8, fontSize: 12, borderBottomColor: "var(--border)" },
@@ -165,17 +165,11 @@ export default function RunsManagerView() {
       }}
     >
       <Stack direction="row" alignItems="center" spacing={0.75} justifyContent="space-between">
-        <Box>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Current Runs</Typography>
-          <Typography variant="caption" color="text.secondary">{countActive} active</Typography>
-        </Box>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Current Runs</Typography>
         <Button size="small" variant="outlined" disabled={loading} onClick={refresh}>Refresh</Button>
       </Stack>
 
       <Box sx={{ mt: 0.75 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.25, display: "block" }}>
-          Filter status
-        </Typography>
         <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">
           {ALL_STATUSES.map((st) => {
             const checked = selectedStatuses.includes(st);
@@ -205,7 +199,6 @@ export default function RunsManagerView() {
           </Button>
         </Stack>
         <Stack direction={{ xs: "column", sm: "row" }} spacing={0.75} alignItems={{ xs: "stretch", sm: "center" }} sx={{ mt: 0.5 }}>
-          <Typography variant="caption" color="text.secondary">Tag search</Typography>
           <TextField
             size="small"
             value={tagQuery}
@@ -269,9 +262,6 @@ export default function RunsManagerView() {
           </TableBody>
         </Table>
       </Box>
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 0.75, display: "block", flexShrink: 0 }}>
-        Right-click a run row for actions.
-      </Typography>
 
       <Menu
         open={Boolean(contextTarget && contextAnchor)}
@@ -360,9 +350,6 @@ export default function RunsManagerView() {
         </DialogActions>
       </Dialog>
 
-      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-        This view polls every 2s. Add WS fan-out later if you implement a consolidated stream server-side.
-      </Typography>
     </Paper>
   );
 }

@@ -79,69 +79,30 @@ function toLocalDateTimeInput(v?: string | null) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function summarizeSchedule(
-  scheduleType: ScheduleType,
-  opts: {
-    scheduledAt: string;
-    recurrenceKind: RecurrenceKind;
-    intervalMin: string;
-    dailyTime: string;
-    dailyEvery: string;
-    weeklyTime: string;
-    weeklyEvery: string;
-    weeklyDays: number[];
-  }
-) {
-  if (scheduleType === "NOW") return "NOW";
-  if (scheduleType === "TIMED") return opts.scheduledAt ? `TIMED · ${opts.scheduledAt}` : "TIMED";
-  if (opts.recurrenceKind === "interval") return `RECURRING · every ${opts.intervalMin || "?"} min`;
-  if (opts.recurrenceKind === "daily") return `RECURRING · every ${opts.dailyEvery || "1"} day(s) at ${opts.dailyTime || "--:--"}`;
-  const labels = opts.weeklyDays.map((day) => WEEKDAY_LABELS[day]).join(", ");
-  return `RECURRING · every ${opts.weeklyEvery || "1"} week(s) on ${labels || "?"} at ${opts.weeklyTime || "--:--"}`;
-}
-
 function uid(prefix: string) {
-  return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
+  return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function coerceValue(raw: string, field: ParamSchemaField) {
+  const value = String(raw ?? "").trim();
+  if (field.type === "bool") return value === "true" || value === "1";
+  if (value.length === 0) return null;
   if (field.type === "int") {
-    if (raw.trim() === "") return null;
-    const v = Number(raw);
-    return Number.isFinite(v) ? Math.trunc(v) : null;
+    const n = Number.parseInt(value, 10);
+    return Number.isFinite(n) ? n : null;
   }
   if (field.type === "float") {
-    if (raw.trim() === "") return null;
-    const v = Number(raw);
-    return Number.isFinite(v) ? v : null;
-  }
-  if (field.type === "bool") {
-    return raw === "true";
+    const n = Number.parseFloat(value);
+    return Number.isFinite(n) ? n : null;
   }
   if (field.type === "iterable") {
-    const trimmed = raw.trim();
-    if (!trimmed) return [];
-    if (trimmed.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-    return trimmed
-      .split(",")
-      .map((v) => v.trim())
-      .filter((v) => v.length > 0)
-      .map((v) => {
-        const n = Number(v);
-        return Number.isFinite(n) ? n : v;
-      });
+    const items = value.split(",").map((part) => part.trim()).filter(Boolean);
+    return items.length ? items : null;
   }
-  // string
-  return raw;
+  return value;
 }
 
+// Experiment panels are the bridge between script-derived parameter schema and queueable run requests.
 export default function ExperimentPanelView({
   panelId,
   compact,
@@ -286,6 +247,7 @@ export default function ExperimentPanelView({
     } as any);
   }
 
+  // Convert the editable form state into the backend argument payload expected by queued runs.
   function buildParamValues(base: Record<string, string>) {
     if (!panel) return null;
 
@@ -590,10 +552,7 @@ export default function ExperimentPanelView({
       }}
     >
       <Stack direction="row" justifyContent="space-between" spacing={0.5} alignItems="center">
-        <Box>
-          <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{panel.name}</Typography>
-          <Typography variant="caption" color="text.secondary">{panel.script_path}</Typography>
-        </Box>
+        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{panel.name}</Typography>
         <Stack direction="row" spacing={0.5} alignItems="center">
           {windowId && tabId ? (
             <IconButton
@@ -611,7 +570,6 @@ export default function ExperimentPanelView({
               <MinimizeIcon fontSize="inherit" />
             </IconButton>
           ) : null}
-          <Typography variant="caption" color="text.secondary">panel_id: {panel.panel_id ?? panelId}</Typography>
         </Stack>
       </Stack>
 
@@ -622,27 +580,12 @@ export default function ExperimentPanelView({
               <Button variant="contained" onClick={onLaunch} disabled={loading}>
                 Queue Run
               </Button>
-              <Typography variant="caption" color="text.secondary">
-                {summarizeSchedule(scheduleType, {
-                  scheduledAt,
-                  recurrenceKind,
-                  intervalMin,
-                  dailyTime,
-                  dailyEvery,
-                  weeklyTime,
-                  weeklyEvery,
-                  weeklyDays,
-                })}
-              </Typography>
             </Stack>
           </Stack>
         </Box>
       ) : (
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 0.95fr" }, gap: 0.65, mt: 0.65 }}>
         <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.35, display: "block" }}>
-            Parameters
-          </Typography>
           <Stack spacing={0.4}>
             {schemaEntries.map(([k, field]) => {
               const raw = paramInputs[k] ?? "";
@@ -731,9 +674,6 @@ export default function ExperimentPanelView({
         </Box>
 
         <Box>
-          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.35, display: "block" }}>
-            Schedule / Run settings
-          </Typography>
 
           <Stack spacing={0.5}>
             <Stack direction="row" spacing={0.5} alignItems="center">
@@ -858,9 +798,6 @@ export default function ExperimentPanelView({
           </Stack>
 
           <Box sx={{ mt: 0.75 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.35, display: "block" }}>
-              Configuration
-            </Typography>
             {panel.config_id ? (
               <Stack direction="row" spacing={0.5}>
                 <Button size="small" variant="outlined" onClick={onUpdateConfig}>
@@ -900,9 +837,6 @@ export default function ExperimentPanelView({
         </DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 1.5, pt: 1.5, overflowX: "hidden" }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Configuration title
-            </Typography>
             <TextField
               size="small"
               value={configTitle}
@@ -912,9 +846,6 @@ export default function ExperimentPanelView({
             />
           </Box>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Tags (CSV)
-            </Typography>
             <TextField
               size="small"
               value={configTags}
@@ -942,9 +873,6 @@ export default function ExperimentPanelView({
         </DialogTitle>
         <DialogContent sx={{ display: "grid", gap: 1.5, pt: 1.5, overflowX: "hidden" }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Configuration title
-            </Typography>
             <TextField
               size="small"
               value={configTitle}
@@ -954,9 +882,6 @@ export default function ExperimentPanelView({
             />
           </Box>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 0.5 }}>
-              Tags (CSV)
-            </Typography>
             <TextField
               size="small"
               value={configTags}

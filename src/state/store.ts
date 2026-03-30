@@ -40,6 +40,7 @@ export type MinimizedPanelModel = {
 
 export type Toast = { id: string; title: string; message: string; ts: number };
 
+// Zustand keeps the desktop layout serializable so the UI can be restored across reloads.
 type AppState = {
   apiBase: string;
   username: string | null;
@@ -122,6 +123,7 @@ function sanitizeWindow(w: any): WindowModel | null {
   const hasArchives = tabs.some((t) => t.view === "archives");
   return {
     windowId: String(w.windowId ?? uid("win")),
+    // Older saved layouts predate workspaces, so we fold them into Main.
     workspaceId: String(w.workspaceId ?? DEFAULT_WORKSPACE_ID),
     x: toNumber(w.x, 40),
     y: toNumber(w.y, 80),
@@ -141,6 +143,7 @@ function sanitizeMinimizedPanel(p: any): MinimizedPanelModel | null {
   if (!tab || tab.view !== "experimentPanel") return null;
   return {
     minimizedId: String(p.minimizedId ?? uid("mini")),
+    // Older saved layouts predate workspaces, so we fold them into Main.
     workspaceId: String(p.workspaceId ?? DEFAULT_WORKSPACE_ID),
     tab,
     x: toNumber(p.x, 80),
@@ -299,6 +302,7 @@ export const useAppStore = create<AppState>()(
 
     addWindow: (win) => {
       set((s) => {
+        // New windows belong to whichever workspace is currently active.
         s.windows.push({ ...win, workspaceId: s.activeWorkspaceId, z: s.nextZ++ });
       });
       get().persist();

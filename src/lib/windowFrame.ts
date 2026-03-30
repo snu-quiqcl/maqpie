@@ -9,14 +9,15 @@ export type WindowViewKind =
 
 type Frame = { x: number; y: number; w: number; h: number };
 
+// Presets are intentionally conservative so first-open windows fit comfortably on smaller displays.
 const PRESETS: Record<WindowViewKind, Frame> = {
-  runsManager: { x: 12, y: 64, w: 760, h: 560 },
-  fileExplorer: { x: 760, y: 64, w: 760, h: 560 },
-  experimentPanel: { x: 120, y: 104, w: 780, h: 600 },
-  dataViewer: { x: 160, y: 96, w: 920, h: 680 },
-  archives: { x: 150, y: 96, w: 900, h: 640 },
-  panelConfigs: { x: 170, y: 96, w: 880, h: 620 },
-  ttlControls: { x: 240, y: 120, w: 680, h: 420 },
+  runsManager: { x: 24, y: 72, w: 560, h: 400 },
+  fileExplorer: { x: 620, y: 72, w: 560, h: 400 },
+  experimentPanel: { x: 124, y: 102, w: 560, h: 430 },
+  dataViewer: { x: 156, y: 96, w: 640, h: 460 },
+  archives: { x: 156, y: 96, w: 620, h: 440 },
+  panelConfigs: { x: 170, y: 96, w: 600, h: 430 },
+  ttlControls: { x: 246, y: 120, w: 500, h: 300 },
 };
 
 export function createWindowFrame(view: WindowViewKind, offset = 0): Frame {

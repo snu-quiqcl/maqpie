@@ -73,6 +73,7 @@ export function setApiBase(v: string) {
   localStorage.setItem("api_base", normalizeApiBase(v));
 }
 
+// Centralize auth headers and JSON/error handling so views can stay thin.
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const base = getApiBase();
   const url = base ? `${base}${path}` : path;
@@ -122,6 +123,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return data as T;
 }
 
+// File downloads still go through authenticated fetch so token-protected endpoints work in-browser.
 async function download(path: string, suggestedName?: string): Promise<void> {
   const base = getApiBase();
   const url = base ? `${base}${path}` : path;
@@ -342,8 +344,9 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  // Legacy helper name kept for callers; the backend currently serves CSV from this endpoint.
   downloadDatasetRaw: (rid: number, dataset_name: string) =>
-    download(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.h5`),
+    download(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.csv`),
   queryDataset: (rid: number, dataset_name: string, body: { query: string; slice?: string }) =>
     request<DatasetQueryResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
       method: "POST",
@@ -378,8 +381,9 @@ export const api = {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
+  // Legacy helper name kept for callers; the backend currently serves CSV from this endpoint.
   downloadArchivedDatasetRaw: (archive_id: number, dataset_name: string) =>
-    download(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.h5`),
+    download(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/download/`, `${dataset_name}.csv`),
   queryArchivedDataset: (archive_id: number, dataset_name: string, body: { query: string; slice?: string }) =>
     request<DatasetQueryResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/query/`, {
       method: "POST",

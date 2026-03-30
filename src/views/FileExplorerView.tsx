@@ -36,13 +36,20 @@ function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+// File Explorer doubles as the entry point for turning scripts into experiment panels.
 export default function FileExplorerView({ defaultPath }: { defaultPath?: string }) {
   const showToast = useAppStore((s) => s.showToast);
   const windows = useAppStore((s) => s.windows);
   const addWindow = useAppStore((s) => s.addWindow);
   const addTabToWindow = useAppStore((s) => s.addTabToWindow);
 
-  const [type, setType] = useState<FileType>(fileExplorerConfig.defaultType);
+  const availableTypes = fileExplorerConfig.availableTypes?.length
+    ? fileExplorerConfig.availableTypes
+    : [fileExplorerConfig.defaultType];
+  const fallbackType = availableTypes.includes(fileExplorerConfig.defaultType)
+    ? fileExplorerConfig.defaultType
+    : availableTypes[0];
+  const [type, setType] = useState<FileType>(fallbackType);
   // Use empty string to represent the repository root for the given file type
   // (backend treats missing/empty 'path' as the directory itself, e.g. BASE/user_scripts)
   const normalize = (p?: string) => {
@@ -74,7 +81,8 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   const [classOptions, setClassOptions] = useState<string[]>([]);
   const [classLoading, setClassLoading] = useState(false);
 
-  const allowedExts = fileExplorerConfig.allowedExtensions ?? [];
+  const allowedExts = fileExplorerConfig.allowedExtensions?.[type] ?? [];
+  const rootLabel = fileExplorerConfig.rootLabels?.[type] ?? (type === "script" ? "/user_scripts" : "/user_fpga");
 
   async function refresh(nextPath?: string) {
     setLoading(true);
@@ -120,18 +128,25 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
   }
 
   useEffect(() => {
-    // On type change, refresh to the provided defaultPath (if any), otherwise to root ('')
-    const root = normalize(defaultPath) ?? (type === "script" ? "" : "");
+    // On type change, refresh to the configured root for that type.
+    const root = normalize(defaultPath) ?? "";
     setExpanded(new Set([root || ""]));
     refresh(root);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [type]);
+
+  useEffect(() => {
+    if (!availableTypes.includes(type)) {
+      setType(fallbackType);
+    }
+  }, [availableTypes, fallbackType, type]);
 
   function fullPath(parent: string, name: string) {
     const clean = name.replace(/\/$/, "");
     return parent ? `${parent.replace(/\/$/, "")}/${clean}` : clean;
   }
 
+  // Child directory contents are loaded lazily to keep the tree responsive.
   async function toggleDir(parent: string, dirName: string) {
     const p = fullPath(parent, dirName);
     const next = new Set(expanded);
@@ -327,15 +342,16 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
           borderBottom: "1px solid var(--border)",
         }}
       >
-        {fileExplorerConfig.showTypeToggle ? (
+        {fileExplorerConfig.showTypeToggle && availableTypes.length > 1 ? (
           <Select
             size="small"
             value={type}
             onChange={(e) => setType(e.target.value as FileType)}
             sx={{ "& .MuiSelect-select": { py: "3px", fontSize: 11.5 } }}
           >
-            <MenuItem value="script">script</MenuItem>
-            <MenuItem value="fpga">fpga</MenuItem>
+            {availableTypes.map((choice) => (
+              <MenuItem key={choice} value={choice}>{choice}</MenuItem>
+            ))}
           </Select>
         ) : null}
         <Button size="small" variant="outlined" disabled={loading} onClick={() => refresh(path)}>
@@ -359,7 +375,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
             bgcolor: "rgba(0,0,0,0.16)",
           }}
         >
-          {path ? `/${path}` : type === "script" ? "/user_scripts" : "/user_fpga"}
+          {path ? `/${path}` : rootLabel}
         </Typography>
       </Stack>
 
@@ -380,9 +396,6 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         {renderBranch(path || "", 0)}
       </List>
 
-      <Typography variant="caption" color="text.secondary" sx={{ px: 0.9, pb: 0.9, display: "block" }}>
-        Finder-style tip: double-click a script to create/open a panel.
-      </Typography>
 
       <Dialog
         open={panelDialogOpen}
@@ -457,13 +470,6 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
               />
             )
           ) : null}
-          <Typography
-            variant="caption"
-            color="text.secondary"
-            sx={{ overflowWrap: "anywhere", wordBreak: "break-word" }}
-          >
-            Script: {pendingScriptPath || "(none)"}
-          </Typography>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setPanelDialogOpen(false)}>Cancel</Button>
@@ -498,7 +504,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
         anchorPosition={
           previewAnchor ? { top: previewAnchor.y, left: previewAnchor.x } : undefined
         }
-        PaperProps={{ sx: { width: 720, height: 420, p: 1.5, bgcolor: "var(--panel)" } }}
+        PaperProps={{ sx: { width: 720, height: 420, p: 1.5, bgcolor: "var(--panel)", color: "var(--text)" } }}
         transformOrigin={{ vertical: "top", horizontal: "left" }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1 }}>
@@ -524,6 +530,7 @@ export default function FileExplorerView({ defaultPath }: { defaultPath?: string
               bgcolor: "var(--panel2)",
               border: "1px solid var(--border)",
               borderRadius: 1,
+              color: "var(--text)",
               fontFamily: "var(--mono)",
               fontSize: 12,
               whiteSpace: "pre-wrap",

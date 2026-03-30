@@ -4,6 +4,7 @@ import { CssBaseline, ThemeProvider, createTheme } from "@mui/material";
 import App from "./App";
 import "./styles.css";
 
+// MUI is used as the structural baseline; most of the visual identity still comes from styles.css variables.
 const theme = createTheme({
   palette: {
     mode: "dark",
@@ -13,7 +14,7 @@ const theme = createTheme({
   shape: { borderRadius: 4 },
   typography: {
     fontFamily:
-      '"IBM Plex Sans", "Space Grotesk", ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+      '"IBM Plex Sans", "IBM Plex Sans Condensed", "Segoe UI Variable", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
     fontSize: 11,
   },
   spacing: 4,

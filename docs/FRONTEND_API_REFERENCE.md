@@ -764,6 +764,25 @@ Expected response:
 
 The current frontend expects array-based datasets most often.
 
+### `GET /runs/<rid>/datasets/<dataset_name>/download/`
+
+Used by: `api.downloadDatasetRaw(rid, dataset_name)`
+
+Path parameters:
+
+- `rid`: integer; required
+- `dataset_name`: string; required
+
+Expected response:
+
+- File download response
+- Current backend behavior returns a CSV attachment built from the dataset table
+
+Notes:
+
+- The frontend helper still uses the historical name `downloadDatasetRaw`, but the current endpoint serves CSV.
+- Typical filenames look like `run_<rid>_<dataset_name>.csv`.
+
 ### `POST /runs/<rid>/datasets/<dataset_name>/query/`
 
 Used by: `api.queryDataset(rid, dataset_name, body)`
@@ -1020,6 +1039,25 @@ Query parameters:
 Expected response:
 
 - same shape as run dataset data
+
+### `GET /archives/<archive_id>/datasets/<dataset_name>/download/`
+
+Used by: `api.downloadArchivedDatasetRaw(archive_id, dataset_name)`
+
+Path parameters:
+
+- `archive_id`: integer; required
+- `dataset_name`: string; required
+
+Expected response:
+
+- File download response
+- Current backend behavior returns a CSV attachment built from the archived dataset table
+
+Notes:
+
+- The frontend helper still uses the historical name `downloadArchivedDatasetRaw`, but the current endpoint serves CSV.
+- Typical filenames look like `archive_<archive_id>_<dataset_name>.csv`.
 
 ### `POST /archives/<archive_id>/datasets/<dataset_name>/query/`
 
