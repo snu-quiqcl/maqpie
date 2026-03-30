@@ -342,13 +342,13 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const scalarValue = useMemo(() => extractScalarValue(data), [data]);
   const scalarMode = explicitDatasetType === "scalar" || (columns.length === 0 && scalarValue !== null);
   const sectionSx = {
-    mt: 0.8,
-    p: 0.75,
+    mt: 0.65,
+    p: 0.65,
     border: "1px solid var(--border)",
     borderRadius: 1,
     background: "color-mix(in srgb, var(--panel2) 72%, transparent)",
   } as const;
-  const sectionTitleSx = { display: "block", mb: 0.5, letterSpacing: "0.02em" } as const;
+  const sectionTitleSx = { display: "block", mb: 0.4, letterSpacing: "0.02em" } as const;
   const clampSelectSx = {
     minWidth: 0,
     "& .MuiSelect-select": {
@@ -661,15 +661,15 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.2 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+    <Paper variant="outlined" sx={{ p: 1.05 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.75}>
         <Box>
           <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
             {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
           </Typography>
           <Typography variant="caption" color="text.secondary">{archiveMode ? "Archived dataset" : "Dataset viewer"}</Typography>
         </Box>
-        <Stack direction="row" spacing={1} alignItems="center">
+        <Stack direction="row" spacing={0.75} alignItems="center">
           {!archiveMode && (
             <FormControlLabel
               control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0 || queryActive} />}
@@ -718,7 +718,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
               }
             }}
           >
-            Download raw
+            Download CSV
           </Button>
           {!archiveMode && (
             <Button size="small" variant="outlined" onClick={() => {
@@ -732,7 +732,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
         </Stack>
       </Stack>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: "236px 1fr", gap: 1, mt: 1 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: "224px 1fr", gap: 0.85, mt: 0.85 }}>
         <Box>
           <Box sx={{ ...sectionSx, mt: 0 }}>
             <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
@@ -781,7 +781,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   },
                 }}
               />
-              <Stack direction="row" spacing={0.6} sx={{ mt: 0.6 }}>
+              <Stack direction="row" spacing={0.5} sx={{ mt: 0.55 }}>
                 <Button
                   size="small"
                   variant="contained"
@@ -859,7 +859,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   value={plotMode}
                   onChange={(_, next) => next && setPlotMode(next)}
                   sx={{
-                    "& .MuiToggleButton-root": { px: 1.05, py: 0.2, fontSize: 11.5, minHeight: 26 },
+                    "& .MuiToggleButton-root": { px: 0.9, py: 0.15, fontSize: 11.5, minHeight: 24 },
                   }}
                 >
                   <ToggleButton value="1d">1D</ToggleButton>

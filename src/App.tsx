@@ -1,7 +1,8 @@
 // src/App.tsx
 import { useEffect, useState } from "react";
-import { Box, Button, IconButton, Paper, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
+import MoreHorizIcon from "@mui/icons-material/MoreHoriz";
 import type { WindowModel } from "./state/store";
 import Window from "./components/Window";
 import MinimizedPanelCard from "./components/MinimizedPanelCard";
@@ -14,6 +15,12 @@ import longLogo from "./assets/longlogo.png";
 import magpieLogo from "./assets/magpie.png";
 import { workspaceConfig } from "./config/workspace";
 
+const initialWorkspaceTabs = [
+  { workspaceId: "workspace_main", name: "Main" },
+];
+const WORKSPACE_PREVIEW_LS_KEY = "workspace_preview_tabs_v1";
+const WORKSPACE_PREVIEW_ACTIVE_LS_KEY = "workspace_preview_active_v1";
+
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
 }
@@ -24,6 +31,8 @@ type PopoutTabPayload = WindowModel["tabs"][number] & {
 };
 
 export default function App() {
+  const activeWorkspaceId = useAppStore((s) => s.activeWorkspaceId);
+  const setActiveWorkspaceId = useAppStore((s) => s.setActiveWorkspaceId);
   const windows = useAppStore((s) => s.windows);
   const minimizedPanels = useAppStore((s) => s.minimizedPanels);
   const rehydrate = useAppStore((s) => s.rehydrate);
@@ -48,10 +57,64 @@ export default function App() {
   const [themeId, setThemeId] = useState(localStorage.getItem("ui_theme") ?? "default");
   const [bgColor, setBgColor] = useState(localStorage.getItem("ui_bg_color") ?? "");
   const [bgImage, setBgImage] = useState(localStorage.getItem("ui_bg_image") ?? "");
+  const [workspaceTabs, setWorkspaceTabs] = useState(initialWorkspaceTabs);
+  const [activeWorkspaceTabId, setActiveWorkspaceTabId] = useState(initialWorkspaceTabs[0].workspaceId);
+  const [workspaceMenu, setWorkspaceMenu] = useState<{ workspaceId: string; anchorEl: HTMLElement | null }>({
+    workspaceId: "",
+    anchorEl: null,
+  });
+  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
+  const [editingWorkspaceName, setEditingWorkspaceName] = useState("");
   const [connectionInfo, setConnectionInfo] = useState<{ state: "checking" | "connected" | "offline"; detail: string }>({
     state: "checking",
     detail: "Checking backend...",
   });
+  const activeWorkspaceName = workspaceTabs.find((workspace) => workspace.workspaceId === activeWorkspaceTabId)?.name ?? "Main";
+  const activeWorkspaceIsMain = activeWorkspaceTabId === "workspace_main";
+
+  useEffect(() => {
+    try {
+      const rawTabs = localStorage.getItem(WORKSPACE_PREVIEW_LS_KEY);
+      const rawActive = localStorage.getItem(WORKSPACE_PREVIEW_ACTIVE_LS_KEY);
+      if (!rawTabs) return;
+      const parsed = JSON.parse(rawTabs);
+      if (!Array.isArray(parsed) || parsed.length === 0) return;
+      const safeTabs = parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const workspaceId = String((item as { workspaceId?: unknown }).workspaceId ?? "").trim();
+          const name = String((item as { name?: unknown }).name ?? "").trim();
+          if (!workspaceId || !name) return null;
+          return { workspaceId, name };
+        })
+        .filter(Boolean) as Array<{ workspaceId: string; name: string }>;
+      if (safeTabs.length === 0) return;
+      const normalizedTabs = safeTabs.some((w) => w.workspaceId === "workspace_main")
+        ? safeTabs
+        : [{ workspaceId: "workspace_main", name: "Main" }, ...safeTabs];
+      setWorkspaceTabs(normalizedTabs);
+      if (rawActive && normalizedTabs.some((w) => w.workspaceId === rawActive)) {
+        setActiveWorkspaceTabId(rawActive);
+      } else {
+        setActiveWorkspaceTabId(normalizedTabs[0].workspaceId);
+      }
+    } catch {
+      // ignore invalid preview state
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_PREVIEW_LS_KEY, JSON.stringify(workspaceTabs));
+  }, [workspaceTabs]);
+
+  useEffect(() => {
+    localStorage.setItem(WORKSPACE_PREVIEW_ACTIVE_LS_KEY, activeWorkspaceTabId);
+  }, [activeWorkspaceTabId]);
+
+  useEffect(() => {
+    setActiveWorkspaceId(activeWorkspaceTabId);
+  }, [activeWorkspaceTabId, setActiveWorkspaceId]);
+
 
   const popoutParams = new URLSearchParams(window.location.search);
   const isPopout = popoutParams.get("popout") === "1";
@@ -168,7 +231,7 @@ export default function App() {
         }
       }
       const frame = originWindow ?? createWindowFrame(restoredTab.view);
-      const win: Omit<WindowModel, "z"> = {
+      const win: Omit<WindowModel, "z" | "workspaceId"> = {
         windowId: originWindow?.windowId ?? `win_${Math.random().toString(16).slice(2, 10)}`,
         x: frame.x,
         y: frame.y,
@@ -246,26 +309,10 @@ export default function App() {
     showToast("Logged out", "Token cleared");
   }
 
-  function openDataViewer() {
-    const tabId = uid("tab");
-    const frame = createWindowFrame("dataViewer");
-    const win: Omit<WindowModel, "z"> = {
-      windowId: uid("win"),
-      x: frame.x,
-      y: frame.y,
-      w: frame.w,
-      h: frame.h,
-      locked: false,
-      tabs: [{ tabId, title: "Data Viewer", view: "dataViewer", props: { rid: 0, datasetName: "" } }],
-      activeTabId: tabId,
-    };
-    addWindow(win);
-  }
-
   function openPanelConfigs() {
     const tabId = uid("tab");
     const frame = createWindowFrame("panelConfigs");
-    const win: Omit<WindowModel, "z"> = {
+    const win: Omit<WindowModel, "z" | "workspaceId"> = {
       windowId: uid("win"),
       x: frame.x,
       y: frame.y,
@@ -281,7 +328,7 @@ export default function App() {
   function openArchives() {
     const tabId = uid("tab");
     const frame = createWindowFrame("archives");
-    const win: Omit<WindowModel, "z"> = {
+    const win: Omit<WindowModel, "z" | "workspaceId"> = {
       windowId: uid("win"),
       x: frame.x,
       y: frame.y,
@@ -297,7 +344,7 @@ export default function App() {
   function openTtlControls() {
     const tabId = uid("tab");
     const frame = createWindowFrame("ttlControls");
-    const win: Omit<WindowModel, "z"> = {
+    const win: Omit<WindowModel, "z" | "workspaceId"> = {
       windowId: uid("win"),
       x: frame.x,
       y: frame.y,
@@ -308,6 +355,73 @@ export default function App() {
       activeTabId: tabId,
     };
     addWindow(win);
+  }
+
+  function addWorkspacePreviewTab() {
+    const workspaceId = uid("workspace");
+    setWorkspaceTabs((prev) => [...prev, { workspaceId, name: `Workspace ${prev.length + 1}` }]);
+    setActiveWorkspaceTabId(workspaceId);
+  }
+
+  function openWorkspaceMenu(workspaceId: string, anchorEl: HTMLElement) {
+    setWorkspaceMenu({ workspaceId, anchorEl });
+  }
+
+  function closeWorkspaceMenu() {
+    setWorkspaceMenu({ workspaceId: "", anchorEl: null });
+  }
+
+  function startWorkspaceRename(workspaceId: string) {
+    if (workspaceId === "workspace_main") {
+      closeWorkspaceMenu();
+      return;
+    }
+    const target = workspaceTabs.find((workspace) => workspace.workspaceId === workspaceId);
+    if (!target) return;
+    setEditingWorkspaceId(workspaceId);
+    setEditingWorkspaceName(target.name);
+    closeWorkspaceMenu();
+  }
+
+  function commitWorkspaceRename() {
+    if (!editingWorkspaceId) return;
+    const trimmed = editingWorkspaceName.trim();
+    if (trimmed) {
+      setWorkspaceTabs((prev) =>
+        prev.map((workspace) =>
+          workspace.workspaceId === editingWorkspaceId ? { ...workspace, name: trimmed } : workspace
+        )
+      );
+    }
+    setEditingWorkspaceId(null);
+    setEditingWorkspaceName("");
+  }
+
+  function cancelWorkspaceRename() {
+    setEditingWorkspaceId(null);
+    setEditingWorkspaceName("");
+  }
+
+  function removeWorkspacePreviewTab(workspaceId: string) {
+    if (workspaceId === "workspace_main") {
+      closeWorkspaceMenu();
+      return;
+    }
+    const target = workspaceTabs.find((workspace) => workspace.workspaceId === workspaceId);
+    const ok = window.confirm(`Delete workspace "${target?.name ?? workspaceId}"?`);
+    if (!ok) {
+      closeWorkspaceMenu();
+      return;
+    }
+    setWorkspaceTabs((prev) => {
+      if (prev.length <= 1) return prev;
+      const next = prev.filter((workspace) => workspace.workspaceId !== workspaceId);
+      if (activeWorkspaceTabId === workspaceId) {
+        setActiveWorkspaceTabId(next[0]?.workspaceId ?? initialWorkspaceTabs[0].workspaceId);
+      }
+      return next;
+    });
+    closeWorkspaceMenu();
   }
 
   if (isPopout) {
@@ -441,7 +555,6 @@ export default function App() {
 
         <div className="launcherRow">
           <Stack direction="row" spacing={0.5}>
-            <Button size="small" variant="outlined" onClick={openDataViewer}>Data Viewer</Button>
             <Button size="small" variant="outlined" onClick={openPanelConfigs}>Panel Configs</Button>
             <Button size="small" variant="outlined" onClick={openOrFocusFE}>File Explorer</Button>
             <Button size="small" variant="outlined" onClick={openArchives}>Archives</Button>
@@ -466,19 +579,20 @@ export default function App() {
         </div>
       </div>
 
-      {windows.filter((w) => !w.minimized).map((w) => (
+
+      {windows.filter((w) => w.workspaceId === activeWorkspaceId && !w.minimized).map((w) => (
         <Window key={w.windowId} model={w} />
       ))}
 
-      {windows.some((w) => w.minimized) && (
+      {windows.some((w) => w.workspaceId === activeWorkspaceId && w.minimized) && (
         <div className="minimized-window-dock">
-          {windows.filter((w) => w.minimized).map((w) => (
+          {windows.filter((w) => w.workspaceId === activeWorkspaceId && w.minimized).map((w) => (
             <MinimizedWindowItem key={w.windowId} model={w} />
           ))}
         </div>
       )}
 
-      {minimizedPanels.map((p) => (
+      {minimizedPanels.filter((p) => p.workspaceId === activeWorkspaceId).map((p) => (
         <MinimizedPanelCard key={p.minimizedId} model={p} />
       ))}
 
@@ -488,6 +602,74 @@ export default function App() {
         <div className="toastMsg">{toast.message}</div>
       </div>
       )}
+
+      <div className={`workspaceIndicator ${activeWorkspaceIsMain ? "" : "workspaceIndicatorAlt"}`}>
+        <span className={`workspaceIndicatorDot ${activeWorkspaceIsMain ? "" : "alt"}`} />
+        Workspace: {activeWorkspaceName}
+      </div>
+
+      <div className="workspaceStrip workspaceStripPreview">
+        <div className="workspaceTabs">
+          {workspaceTabs.map((workspace) => (
+            <div
+              key={workspace.workspaceId}
+              className={`workspaceTab ${workspace.workspaceId === activeWorkspaceTabId ? "active" : ""}`}
+            >
+              {editingWorkspaceId === workspace.workspaceId ? (
+                <input
+                  className="workspaceTabInput"
+                  value={editingWorkspaceName}
+                  autoFocus
+                  onChange={(e) => setEditingWorkspaceName(e.target.value)}
+                  onBlur={commitWorkspaceRename}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitWorkspaceRename();
+                    if (e.key === "Escape") cancelWorkspaceRename();
+                  }}
+                />
+              ) : (
+                <button
+                  type="button"
+                  className="workspaceTabLabel"
+                  onClick={() => setActiveWorkspaceTabId(workspace.workspaceId)}
+                >
+                  {workspace.name}
+                </button>
+              )}
+              <button
+                type="button"
+                className="workspaceTabMore"
+                onClick={(e) => openWorkspaceMenu(workspace.workspaceId, e.currentTarget)}
+                aria-label={`Workspace actions for ${workspace.name}`}
+              >
+                <MoreHorizIcon fontSize="inherit" />
+              </button>
+            </div>
+          ))}
+          <button type="button" className="workspaceAdd" onClick={addWorkspacePreviewTab}>
+            +
+          </button>
+        </div>
+      </div>
+      <Menu
+        anchorEl={workspaceMenu.anchorEl}
+        open={Boolean(workspaceMenu.anchorEl)}
+        onClose={closeWorkspaceMenu}
+      >
+        <MenuItem
+          onClick={() => startWorkspaceRename(workspaceMenu.workspaceId)}
+          disabled={workspaceMenu.workspaceId === "workspace_main"}
+        >
+          Rename
+        </MenuItem>
+        <MenuItem
+          onClick={() => removeWorkspacePreviewTab(workspaceMenu.workspaceId)}
+          disabled={workspaceMenu.workspaceId === "workspace_main"}
+          sx={{ color: "error.main" }}
+        >
+          Delete
+        </MenuItem>
+      </Menu>
       </>
       )}
       {authed && settingsOpen && (

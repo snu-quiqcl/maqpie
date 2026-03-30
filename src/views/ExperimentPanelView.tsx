@@ -599,7 +599,13 @@ export default function ExperimentPanelView({
             <IconButton
               size="small"
               onClick={() => minimizePanelTab(windowId, tabId)}
-              sx={{ p: 0.45 }}
+              sx={{
+                p: 0.35,
+                border: "1px solid var(--border)",
+                borderRadius: "999px",
+                background: "color-mix(in srgb, var(--panel2) 80%, transparent)",
+                "&:hover": { background: "color-mix(in srgb, var(--panel2) 92%, transparent)" },
+              }}
               title="Minimize this panel"
             >
               <MinimizeIcon fontSize="inherit" />

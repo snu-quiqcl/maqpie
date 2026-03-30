@@ -420,7 +420,7 @@ hr {
 .minimized-window-dock {
   position: fixed;
   right: 14px;
-  bottom: 14px;
+  bottom: 48px;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
@@ -464,6 +464,143 @@ hr {
   white-space: nowrap;
   font-size: 12px;
   font-weight: 600;
+}
+
+.workspaceStrip {
+  position: fixed;
+  left: 14px;
+  right: 14px;
+  bottom: 10px;
+  display: flex;
+  justify-content: flex-start;
+  z-index: 6500;
+  pointer-events: none;
+}
+
+.workspaceIndicator {
+  position: fixed;
+  left: 14px;
+  bottom: 52px;
+  z-index: 6400;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, white 6%);
+  background: color-mix(in srgb, var(--panel2) 82%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  box-shadow: 0 8px 18px rgba(0,0,0,0.08);
+  backdrop-filter: blur(12px) saturate(1.04);
+  pointer-events: none;
+}
+
+.workspaceIndicatorAlt {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel2) 86%);
+}
+
+.workspaceIndicatorDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 80%, transparent);
+  flex: 0 0 auto;
+}
+
+.workspaceIndicatorDot.alt {
+  background: var(--accent);
+}
+
+.workspaceTabs {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, white 6%);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--panel2) 82%, transparent);
+  box-shadow: 0 10px 24px rgba(0,0,0,0.12);
+  backdrop-filter: blur(12px) saturate(1.04);
+}
+
+.workspaceTab,
+.workspaceAdd {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, white 6%);
+  background: color-mix(in srgb, var(--panel) 68%, transparent);
+  color: var(--text);
+  min-height: 26px;
+  font-size: 11.5px;
+  line-height: 1;
+}
+
+.workspaceTab {
+  min-width: 94px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+}
+
+.workspaceTab.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel) 74%);
+  border-color: color-mix(in srgb, var(--accent) 42%, white 5%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.workspaceTabLabel {
+  border: none;
+  background: transparent;
+  color: inherit;
+  min-height: 0;
+  padding: 2px 0;
+  flex: 1;
+  text-align: left;
+}
+
+.workspaceTabInput {
+  border: none;
+  background: transparent;
+  color: inherit;
+  min-height: 0;
+  padding: 2px 0;
+  flex: 1;
+  min-width: 0;
+  font-size: inherit;
+  line-height: 1.1;
+  outline: none;
+}
+
+.workspaceTabInput::selection {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.workspaceTabMore {
+  border: none;
+  background: transparent;
+  color: inherit;
+  min-height: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+}
+
+.workspaceTabMore:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+.workspaceAdd {
+  min-width: 28px;
+  padding-inline: 0;
+  font-size: 15px;
 }
 
 body.grid-visible .desktop {
@@ -803,19 +940,20 @@ body.grid-visible .desktop {
   top: 50%;
   transform: translateY(-50%);
   z-index: 2;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--panel) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, white 6%);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, white 3%), color-mix(in srgb, var(--panel2) 86%, transparent));
   color: var(--text);
   display: grid;
   place-items: center;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 120ms ease;
-  backdrop-filter: blur(8px);
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+  backdrop-filter: blur(10px) saturate(1.04);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 
 .tabstripArrow.visible {
@@ -830,6 +968,12 @@ body.grid-visible .desktop {
 .tabstripArrow.right {
   right: 6px;
 }
+
+.tabstripArrow:hover {
+  transform: translateY(-50%) scale(1.04);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, white 5%), color-mix(in srgb, var(--panel2) 90%, transparent));
+}
+
 .tab.active {
   background: color-mix(in srgb, var(--accent) 16%, var(--panel) 72%);
   border-color: color-mix(in srgb, var(--accent) 46%, white 4%);
@@ -872,19 +1016,19 @@ body.grid-visible .desktop {
   height: 100%;
   background: color-mix(in srgb, var(--panel) 94%, transparent);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  border-radius: 9px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px) saturate(1.03);
 }
 
 .minimized-panel-handle {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 10px 6px;
+  padding: 6px 8px 5px;
   background: color-mix(in srgb, var(--panel2) 90%, transparent);
   border-bottom: 1px solid var(--border);
   cursor: move;
@@ -904,20 +1048,21 @@ body.grid-visible .desktop {
 
 .minimized-panel-return {
   border: 1px solid var(--border);
-  background: transparent;
+  background: color-mix(in srgb, var(--panel2) 76%, transparent);
   color: var(--text);
-  font-size: 10px;
-  padding: 2px 8px;
+  font-size: 9.5px;
+  line-height: 1.1;
+  padding: 1px 7px;
   border-radius: 999px;
 }
 
 .minimized-panel-return:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: color-mix(in srgb, var(--panel2) 92%, transparent);
 }
 
 .minimized-panel-body {
   flex: 1;
-  padding: 6px;
+  padding: 5px;
   min-height: 0;
 }
 

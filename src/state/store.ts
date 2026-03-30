@@ -14,6 +14,7 @@ export type TabModel = {
 
 export type WindowModel = {
   windowId: string;
+  workspaceId: string;
   x: number;
   y: number;
   w: number;
@@ -27,6 +28,7 @@ export type WindowModel = {
 
 export type MinimizedPanelModel = {
   minimizedId: string;
+  workspaceId: string;
   tab: TabModel;
   x: number;
   y: number;
@@ -42,6 +44,7 @@ type AppState = {
   apiBase: string;
   username: string | null;
 
+  activeWorkspaceId: string;
   windows: WindowModel[];
   minimizedPanels: MinimizedPanelModel[];
   nextZ: number;
@@ -50,13 +53,14 @@ type AppState = {
 
   setApiBase: (v: string) => void;
   setUsername: (u: string | null) => void;
+  setActiveWorkspaceId: (workspaceId: string) => void;
 
   bringToFront: (windowId: string) => void;
   moveResizeWindow: (windowId: string, patch: Partial<Pick<WindowModel, "x" | "y" | "w" | "h">>) => void;
   bringMinimizedPanelToFront: (minimizedId: string) => void;
   moveMinimizedPanel: (minimizedId: string, patch: Partial<Pick<MinimizedPanelModel, "x" | "y">>) => void;
 
-  addWindow: (win: Omit<WindowModel, "z">) => void;
+  addWindow: (win: Omit<WindowModel, "z" | "workspaceId">) => void;
   closeWindow: (windowId: string) => void;
   toggleWindowMinimized: (windowId: string) => void;
   minimizePanelTab: (windowId: string, tabId: string) => void;
@@ -80,9 +84,18 @@ type AppState = {
 };
 
 const LS_KEY = "lab_ui_layout_v1";
+const DEFAULT_WORKSPACE_ID = "workspace_main";
 
 function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(16).slice(2, 10)}`;
+}
+
+function runsManagerWindowId(workspaceId: string) {
+  return workspaceId === DEFAULT_WORKSPACE_ID ? "win_runs_manager" : `win_runs_manager_${workspaceId}`;
+}
+
+function fileExplorerWindowId(workspaceId: string) {
+  return workspaceId === DEFAULT_WORKSPACE_ID ? "win_file_explorer" : `win_file_explorer_${workspaceId}`;
 }
 
 function toNumber(v: unknown, fallback: number) {
@@ -109,6 +122,7 @@ function sanitizeWindow(w: any): WindowModel | null {
   const hasArchives = tabs.some((t) => t.view === "archives");
   return {
     windowId: String(w.windowId ?? uid("win")),
+    workspaceId: String(w.workspaceId ?? DEFAULT_WORKSPACE_ID),
     x: toNumber(w.x, 40),
     y: toNumber(w.y, 80),
     w: toNumber(w.w, 520),
@@ -127,6 +141,7 @@ function sanitizeMinimizedPanel(p: any): MinimizedPanelModel | null {
   if (!tab || tab.view !== "experimentPanel") return null;
   return {
     minimizedId: String(p.minimizedId ?? uid("mini")),
+    workspaceId: String(p.workspaceId ?? DEFAULT_WORKSPACE_ID),
     tab,
     x: toNumber(p.x, 80),
     y: toNumber(p.y, 120),
@@ -142,7 +157,25 @@ function defaultRunsManager(): WindowModel {
   const tabId = uid("tab");
   const frame = createWindowFrame("runsManager");
   return {
-    windowId: "win_runs_manager",
+    windowId: runsManagerWindowId(DEFAULT_WORKSPACE_ID),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
+    z: 1,
+    locked: true,
+    tabs: [{ tabId, title: "Experiment Manager", view: "runsManager", props: {} }],
+    activeTabId: tabId,
+  };
+}
+
+function defaultRunsManagerForWorkspace(workspaceId: string): WindowModel {
+  const tabId = uid("tab");
+  const frame = createWindowFrame("runsManager");
+  return {
+    windowId: runsManagerWindowId(workspaceId),
+    workspaceId,
     x: frame.x,
     y: frame.y,
     w: frame.w,
@@ -159,7 +192,32 @@ function defaultFileExplorer(): WindowModel {
   const tabId = uid("tab");
   const frame = createWindowFrame("fileExplorer");
   return {
-    windowId: "win_file_explorer",
+    windowId: fileExplorerWindowId(DEFAULT_WORKSPACE_ID),
+    workspaceId: DEFAULT_WORKSPACE_ID,
+    x: frame.x,
+    y: frame.y,
+    w: frame.w,
+    h: frame.h,
+    z: 1,
+    locked: true,
+    tabs: [
+      {
+        tabId,
+        title: "File Explorer",
+        view: "fileExplorer",
+        props: { defaultPath: "" },
+      },
+    ],
+    activeTabId: tabId,
+  };
+}
+
+function defaultFileExplorerForWorkspace(workspaceId: string): WindowModel {
+  const tabId = uid("tab");
+  const frame = createWindowFrame("fileExplorer");
+  return {
+    windowId: fileExplorerWindowId(workspaceId),
+    workspaceId,
     x: frame.x,
     y: frame.y,
     w: frame.w,
@@ -184,6 +242,7 @@ export const useAppStore = create<AppState>()(
     apiBase: localStorage.getItem("api_base") ?? "",
     username: localStorage.getItem("username") ?? null,
 
+    activeWorkspaceId: DEFAULT_WORKSPACE_ID,
     windows: [],
     minimizedPanels: [],
     nextZ: 2,
@@ -197,6 +256,9 @@ export const useAppStore = create<AppState>()(
       set((s) => void (s.username = u));
       if (u) localStorage.setItem("username", u);
       else localStorage.removeItem("username");
+    },
+    setActiveWorkspaceId: (workspaceId) => {
+      set((s) => void (s.activeWorkspaceId = workspaceId || DEFAULT_WORKSPACE_ID));
     },
 
     bringToFront: (windowId) => {
@@ -237,7 +299,7 @@ export const useAppStore = create<AppState>()(
 
     addWindow: (win) => {
       set((s) => {
-        s.windows.push({ ...win, z: s.nextZ++ });
+        s.windows.push({ ...win, workspaceId: s.activeWorkspaceId, z: s.nextZ++ });
       });
       get().persist();
     },
@@ -275,6 +337,7 @@ export const useAppStore = create<AppState>()(
 
         s.minimizedPanels.push({
           minimizedId: uid("mini"),
+          workspaceId: w.workspaceId,
           tab,
           x: w.x + 24,
           y: w.y + 40,
@@ -311,6 +374,7 @@ export const useAppStore = create<AppState>()(
           const frame = createWindowFrame("experimentPanel", 18);
           s.windows.push({
             windowId: uid("win"),
+            workspaceId: mini.workspaceId,
             x: frame.x,
             y: frame.y,
             w: frame.w,
@@ -403,21 +467,24 @@ export const useAppStore = create<AppState>()(
     },
 
     openOrFocusSingletonRunsManager: () => {
-      const existing = get().windows.find((w) => w.windowId === "win_runs_manager");
+      const workspaceId = get().activeWorkspaceId;
+      const targetWindowId = runsManagerWindowId(workspaceId);
+      const existing = get().windows.find((w) => w.windowId === targetWindowId);
       if (existing) {
         set((s) => {
-          const idx = s.windows.findIndex((w) => w.windowId === "win_runs_manager");
+          const idx = s.windows.findIndex((w) => w.windowId === targetWindowId);
           if (idx < 0) return;
-          const next = defaultRunsManager();
+          const next = defaultRunsManagerForWorkspace(workspaceId);
           s.windows[idx].tabs = next.tabs;
           s.windows[idx].activeTabId = next.activeTabId;
           s.windows[idx].locked = true;
+          s.windows[idx].workspaceId = workspaceId;
         });
-        get().bringToFront("win_runs_manager");
+        get().bringToFront(targetWindowId);
         return;
       }
       set((s) => {
-        s.windows.push(defaultRunsManager());
+        s.windows.push(defaultRunsManagerForWorkspace(workspaceId));
         s.nextZ = Math.max(s.nextZ, 2);
       });
       get().persist();
@@ -438,6 +505,7 @@ export const useAppStore = create<AppState>()(
         const frame = createWindowFrame(tab.view, 24);
         const win: WindowModel = {
           windowId: uid("win"),
+          workspaceId: w.workspaceId,
           x: frame.x,
           y: frame.y,
           w: frame.w,
@@ -453,21 +521,24 @@ export const useAppStore = create<AppState>()(
     },
 
     openOrFocusSingletonFileExplorer: () => {
-      const existing = get().windows.find((w) => w.windowId === "win_file_explorer");
+      const workspaceId = get().activeWorkspaceId;
+      const targetWindowId = fileExplorerWindowId(workspaceId);
+      const existing = get().windows.find((w) => w.windowId === targetWindowId);
       if (existing) {
         set((s) => {
-          const idx = s.windows.findIndex((w) => w.windowId === "win_file_explorer");
+          const idx = s.windows.findIndex((w) => w.windowId === targetWindowId);
           if (idx < 0) return;
-          const next = defaultFileExplorer();
+          const next = defaultFileExplorerForWorkspace(workspaceId);
           s.windows[idx].tabs = next.tabs;
           s.windows[idx].activeTabId = next.activeTabId;
           s.windows[idx].locked = true;
+          s.windows[idx].workspaceId = workspaceId;
         });
-        get().bringToFront("win_file_explorer");
+        get().bringToFront(targetWindowId);
         return;
       }
       set((s) => {
-        s.windows.push(defaultFileExplorer());
+        s.windows.push(defaultFileExplorerForWorkspace(workspaceId));
         s.nextZ = Math.max(s.nextZ, 2);
       });
       get().persist();
@@ -508,20 +579,22 @@ export const useAppStore = create<AppState>()(
             s.nextZ = toNumber(parsed.nextZ, 2);
 
             // Ensure singletons exist
-            const rm = s.windows.find((w) => w.windowId === "win_runs_manager");
+            const rm = s.windows.find((w) => w.windowId === runsManagerWindowId(DEFAULT_WORKSPACE_ID));
             if (!rm) s.windows.unshift(defaultRunsManager());
             else {
               rm.tabs = defaultRunsManager().tabs;
               rm.activeTabId = rm.tabs[0].tabId;
               rm.locked = true;
+              rm.workspaceId = DEFAULT_WORKSPACE_ID;
             }
 
-            const fe = s.windows.find((w) => w.windowId === "win_file_explorer");
+            const fe = s.windows.find((w) => w.windowId === fileExplorerWindowId(DEFAULT_WORKSPACE_ID));
             if (!fe) s.windows.push(defaultFileExplorer());
             else {
               fe.tabs = defaultFileExplorer().tabs;
               fe.activeTabId = fe.tabs[0].tabId;
               fe.locked = true;
+              fe.workspaceId = DEFAULT_WORKSPACE_ID;
             }
 
             // normalize nextZ from actual z values
