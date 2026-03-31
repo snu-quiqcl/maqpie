@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Checkbox,
+  Chip,
   Collapse,
   Dialog,
   DialogActions,
@@ -172,6 +173,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const [meta, setMeta] = useState<DatasetMeta | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
+  const [baseMeta, setBaseMeta] = useState<DatasetMeta | null>(null);
+  const [baseData, setBaseData] = useState<any[]>([]);
+  const [baseColumns, setBaseColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [plotMode, setPlotMode] = useState<"1d" | "2d">("1d");
   const [xField, setXField] = useState("");
@@ -280,23 +284,34 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           const a = await api.getArchive(archiveId);
           const d: any = await api.getArchivedDatasetData(archiveId, selected, { format: "json" });
           if (!mounted) return;
-          setMeta({
+          const nextMeta = {
             rid: a.rid,
             name: selected,
             dtype: "unknown",
             shape: [],
-          });
-          setColumns(Array.isArray(d?.columns) ? d.columns : []);
-          setData(d?.data ?? []);
+          };
+          const nextColumns = Array.isArray(d?.columns) ? d.columns : [];
+          const nextData = d?.data ?? [];
+          setMeta(nextMeta);
+          setBaseMeta(nextMeta);
+          setColumns(nextColumns);
+          setBaseColumns(nextColumns);
+          setData(nextData);
+          setBaseData(nextData);
           setQueryActive(false);
           setQuerySummary("");
         } else {
           const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
           const d: any = await api.getDatasetData(rid, selected, { format: "json" });
           if (!mounted) return;
+          const nextColumns = Array.isArray(d?.columns) ? d.columns : [];
+          const nextData = d?.data ?? [];
           setMeta(m);
-          setColumns(Array.isArray(d?.columns) ? d.columns : []);
-          setData(d?.data ?? []);
+          setBaseMeta(m);
+          setColumns(nextColumns);
+          setBaseColumns(nextColumns);
+          setData(nextData);
+          setBaseData(nextData);
           setQueryActive(false);
           setQuerySummary("");
         }
@@ -395,6 +410,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ mode: "rows", period_ms: 200 }));
+      if (queryActive && queryText.trim()) {
+        ws.send(JSON.stringify({ query: queryText.trim() }));
+      }
       showToast("Streaming", `Subscribed to ${selected}`);
     };
 
@@ -409,23 +427,36 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
       if (msg.type === "reset") {
         setData([]);
+        setBaseData([]);
         return;
       }
 
       if (msg.type === "snapshot") {
-        setColumns(Array.isArray(msg.columns) ? msg.columns : []);
-        setData(Array.isArray(msg.data) ? msg.data : []);
+        const nextColumns = Array.isArray(msg.columns) ? msg.columns : [];
+        const nextData = Array.isArray(msg.data) ? msg.data : [];
+        setColumns(nextColumns);
+        setData(nextData);
+        if (!queryActive) {
+          setBaseColumns(nextColumns);
+          setBaseData(nextData);
+        }
         return;
       }
 
       if (msg.type === "append") {
         if (Array.isArray(msg.columns) && msg.columns.length > 0) {
           setColumns(msg.columns);
+          if (!queryActive) {
+            setBaseColumns(msg.columns);
+          }
         }
+        const nextRows = Array.isArray(msg.rows) ? msg.rows : [];
         setData((prev) => {
-          const nextRows = Array.isArray(msg.rows) ? msg.rows : [];
           return prev.concat(nextRows);
         });
+        if (!queryActive) {
+          setBaseData((prev) => prev.concat(nextRows));
+        }
       }
     };
 
@@ -445,7 +476,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       }
       wsRef.current = null;
     };
-  }, [rid, ridValid, selected, streaming, showToast, archiveMode]);
+  }, [rid, ridValid, selected, streaming, showToast, archiveMode, queryActive, queryText]);
 
   const fieldOptions = useMemo(() => {
     if (scalarMode) return ["value"];
@@ -659,9 +690,25 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
           {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
         </Typography>
         <Stack direction="row" spacing={0.75} alignItems="center">
+          {!archiveMode && streaming && queryActive && (
+            <Chip
+              size="small"
+              label="Live query"
+              color="secondary"
+              variant="outlined"
+              sx={{
+                height: 22,
+                fontSize: 11,
+                "& .MuiChip-label": {
+                  px: 0.8,
+                  fontFamily: "var(--mono)",
+                },
+              }}
+            />
+          )}
           {!archiveMode && (
             <FormControlLabel
-              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0 || queryActive} />}
+              control={<Checkbox size="small" checked={streaming} onChange={(e) => setStreaming(e.target.checked)} disabled={!selected || datasets.length === 0} />}
               label={<Typography variant="caption">Streaming</Typography>}
             />
           )}
@@ -674,8 +721,13 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                 try {
                   setLoading(true);
                   const d: any = await api.getDatasetData(rid, selected, { format: "json" });
-                  setColumns(Array.isArray(d?.columns) ? d.columns : []);
-                  setData(d?.data ?? []);
+                  const nextColumns = Array.isArray(d?.columns) ? d.columns : [];
+                  const nextData = d?.data ?? [];
+                  setColumns(nextColumns);
+                  setBaseColumns(nextColumns);
+                  setData(nextData);
+                  setBaseData(nextData);
+                  setBaseMeta(meta);
                   setQueryActive(false);
                   setQuerySummary("");
                 } catch (e: any) {
@@ -775,7 +827,6 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                     if (!selected) return;
                     try {
                       setLoading(true);
-                      setStreaming(false);
                       const resp = archiveMode && archiveId
                         ? await api.queryArchivedDataset(archiveId, selected, { query: queryText })
                         : await api.queryDataset(rid, selected, { query: queryText });
@@ -787,6 +838,9 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                           ? `${resp.query.row_count} rows${resp.query.aggregated ? ", aggregated" : ""}${resp.query.grouped ? ", grouped" : ""}`
                           : "Query applied"
                       );
+                      if (!archiveMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                        wsRef.current.send(JSON.stringify({ query: queryText.trim() }));
+                      }
                     } catch (e: any) {
                       showToast("Query failed", e.message || String(e));
                     } finally {
@@ -800,21 +854,14 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   size="small"
                   variant="outlined"
                   disabled={!queryActive || loading || !selected}
-                  onClick={async () => {
-                    if (!selected) return;
-                    try {
-                      setLoading(true);
-                      const d: any = archiveMode && archiveId
-                        ? await api.getArchivedDatasetData(archiveId, selected, { format: "json" })
-                        : await api.getDatasetData(rid, selected, { format: "json" });
-                      setColumns(Array.isArray(d?.columns) ? d.columns : []);
-                      setData(d?.data ?? []);
-                      setQueryActive(false);
-                      setQuerySummary("");
-                    } catch (e: any) {
-                      showToast("Reset failed", e.message || String(e));
-                    } finally {
-                      setLoading(false);
+                  onClick={() => {
+                    setMeta(baseMeta);
+                    setColumns(baseColumns);
+                    setData(baseData);
+                    setQueryActive(false);
+                    setQuerySummary("");
+                    if (!archiveMode && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+                      wsRef.current.send(JSON.stringify({ op: "reset_query" }));
                     }
                   }}
                 >
