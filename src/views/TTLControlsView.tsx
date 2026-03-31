@@ -44,7 +44,7 @@ export default function TTLControlsView() {
     let closing = false;
 
     const connect = () => {
-      const ws = new WebSocket(wsUrl("/ttl/status/"));
+      const ws = new WebSocket(wsUrl("/devices/ttl/status/"));
       wsRef.current = ws;
 
       ws.onmessage = (ev) => {

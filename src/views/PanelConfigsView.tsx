@@ -6,6 +6,8 @@ import type { PanelConfigListItem } from "../lib/types";
 import { useAppStore } from "../state/store";
 import { panelOpenConfig } from "../config/panels";
 
+const CONFIG_REFRESH_MS = 5000;
+
 // Panel configuration snapshots are separate from live panels so users can reopen known-good setups quickly.
 export default function PanelConfigsView() {
   const showToast = useAppStore((s) => s.showToast);
@@ -130,6 +132,14 @@ export default function PanelConfigsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      refresh();
+    }, CONFIG_REFRESH_MS);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tag, scriptPath, className]);
+
   return (
     <Paper
       variant="outlined"
@@ -193,6 +203,8 @@ export default function PanelConfigsView() {
                 <TableCell>Title</TableCell>
                 <TableCell>Script</TableCell>
                 {panelOpenConfig.enableClassSelection ? <TableCell>Class</TableCell> : null}
+                <TableCell sx={{ minWidth: 150 }}>Updated</TableCell>
+                <TableCell sx={{ minWidth: 120 }}>User</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -200,6 +212,10 @@ export default function PanelConfigsView() {
                 <TableRow
                   key={c.config_id}
                   hover
+                  sx={{ cursor: "pointer" }}
+                  onDoubleClick={() => {
+                    void openPanelFromConfig(c.config_id);
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     setContextTarget(c);
@@ -215,11 +231,21 @@ export default function PanelConfigsView() {
                   {panelOpenConfig.enableClassSelection ? (
                     <TableCell sx={{ minWidth: 140 }}>{c.class_name || "-"}</TableCell>
                   ) : null}
+                  <TableCell sx={{ minWidth: 150 }}>
+                    <Typography variant="caption" sx={{ fontSize: 11.5 }}>
+                      {c.updated_at ? new Date(c.updated_at).toLocaleString() : "-"}
+                    </Typography>
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 120 }}>
+                    <Typography variant="caption" sx={{ fontSize: 11.5 }}>
+                      {c.updated_by?.username || "-"}
+                    </Typography>
+                  </TableCell>
                 </TableRow>
               ))}
               {items.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={panelOpenConfig.enableClassSelection ? 3 : 2} sx={{ color: "text.secondary" }}>
+                  <TableCell colSpan={panelOpenConfig.enableClassSelection ? 5 : 4} sx={{ color: "text.secondary" }}>
                     No configs found.
                   </TableCell>
                 </TableRow>

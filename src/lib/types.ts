@@ -48,10 +48,9 @@ export type PanelResp = {
   name: string;
   description?: string;
   tags: string[];
-  parameters_schema: Record<string, ParamSchema>;
+  param_schema: Record<string, ParamSchema>;
   param_values: Record<string, unknown>;
   panel: {
-    fields: Array<{ key: string; control: string }>;
     schedule_defaults: {
       priority: Priority;
       schedule_type: ScheduleType;
@@ -88,7 +87,7 @@ export type RunListItem = {
 export type RunsListResp = { items: RunListItem[]; next_cursor: string | null };
 
 export type RunDetailResp = RunListItem & {
-  parameters_schema?: Record<string, ParamSchema>;
+  param_schema?: Record<string, ParamSchema>;
   param_values?: Record<string, unknown>;
 };
 

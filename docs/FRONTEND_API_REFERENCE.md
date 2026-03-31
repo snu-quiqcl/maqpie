@@ -3,8 +3,8 @@
 This document describes the API surface used by the React frontend in `maqpie`.
 It is written from the frontend point of view, based on:
 
-- [api.ts](/home/server/Desktop/Codes/ent/iquip-web/src/lib/api.ts)
-- [types.ts](/home/server/Desktop/Codes/ent/iquip-web/src/lib/types.ts)
+- [api.ts](/home/server/Desktop/Codes/ent/maqpie/src/lib/api.ts)
+- [types.ts](/home/server/Desktop/Codes/ent/maqpie/src/lib/types.ts)
 - backend routing in [urls.py](/home/server/Desktop/Codes/ent/quail/quail/urls.py)
 - websocket routing in [routing.py](/home/server/Desktop/Codes/ent/quail/datahandler/routing.py)
 
@@ -197,10 +197,9 @@ Expected response:
   "name": "CoolingScan",
   "description": "optional",
   "tags": ["calibration"],
-  "parameters_schema": {},
+  "param_schema": {},
   "param_values": {},
   "panel": {
-    "fields": [],
     "schedule_defaults": {
       "priority": 3,
       "schedule_type": "NOW",
@@ -257,6 +256,16 @@ Expected response:
   "next_cursor": null
 }
 ```
+
+### `PanelResp`
+
+`PanelResp` splits panel parameter data into:
+
+- `param_schema`: the canonical parameter definitions keyed by parameter name. This drives typing, defaults, and validation hints like `min`, `max`, and `unit`.
+- `param_values`: the saved current values for those parameters on this panel.
+- `panel.schedule_defaults`: the default queueing/scheduling settings attached to the panel.
+
+There is no separate `panel.fields` object anymore; the frontend renders controls directly from `param_schema`.
 
 ### `GET /panels/<panel_id>/`
 
@@ -856,7 +865,7 @@ Expected response:
 
 ## TTL
 
-### `GET /ttl/devices/`
+### `GET /devices/ttl/devices/`
 
 Used by: `api.getTtlDevices()`
 
@@ -868,7 +877,7 @@ Expected response:
 }
 ```
 
-### `POST /ttl/level/`
+### `POST /devices/ttl/level/`
 
 Used by: `api.setTtlLevel(devices, levels)`
 
@@ -889,7 +898,7 @@ Expected response:
 }
 ```
 
-### `POST /ttl/override/`
+### `POST /devices/ttl/override/`
 
 Used by: `api.setTtlOverride(devices, values)`
 
@@ -1194,7 +1203,7 @@ Optional error:
 }
 ```
 
-### `GET WS /ttl/status/?token=<token>`
+### `GET WS /devices/ttl/status/?token=<token>`
 
 Used by: `TTLControlsView`
 

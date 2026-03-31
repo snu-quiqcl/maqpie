@@ -22,10 +22,9 @@ type PanelDTO = {
   script_path: string;
   tags: string[];
   description?: string;
-  parameters_schema: Record<string, ParamSchemaField>;
+  param_schema: Record<string, ParamSchemaField>;
   param_values: Record<string, any>;
   panel?: {
-    fields?: Array<{ key: string; control: string }>;
     schedule_defaults?: {
       priority?: number;
       schedule_type?: "NOW" | "TIMED" | "RECURRING";
@@ -50,7 +49,6 @@ type PanelDTO = {
 type Priority = number;
 type ScheduleType = "NOW" | "TIMED" | "RECURRING";
 type RecurrenceKind = "interval" | "daily" | "weekly";
-type FloatRangeState = { enabled: boolean; start: string; end: string; step: string };
 const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function detectBrowserTimezone() {
@@ -102,6 +100,36 @@ function coerceValue(raw: string, field: ParamSchemaField) {
   return value;
 }
 
+function validateParamInput(name: string, raw: string, field: ParamSchemaField): string | null {
+  const value = String(raw ?? "").trim();
+  if (field.type === "bool") return null;
+  if (value.length === 0) return null;
+
+  if (field.type === "int") {
+    if (!/^-?\d+$/.test(value)) return `${name}: expected an integer`;
+    const n = Number.parseInt(value, 10);
+    if (field.min != null && n < field.min) return `${name}: must be >= ${field.min}`;
+    if (field.max != null && n > field.max) return `${name}: must be <= ${field.max}`;
+    return null;
+  }
+
+  if (field.type === "float") {
+    const n = Number.parseFloat(value);
+    if (!Number.isFinite(n)) return `${name}: expected a number`;
+    if (field.min != null && n < field.min) return `${name}: must be >= ${field.min}`;
+    if (field.max != null && n > field.max) return `${name}: must be <= ${field.max}`;
+    return null;
+  }
+
+  if (field.type === "iterable") {
+    const items = value.split(",").map((part) => part.trim()).filter(Boolean);
+    if (!items.length) return `${name}: enter one or more comma-separated values`;
+    return null;
+  }
+
+  return null;
+}
+
 // Experiment panels are the bridge between script-derived parameter schema and queueable run requests.
 export default function ExperimentPanelView({
   panelId,
@@ -142,7 +170,6 @@ export default function ExperimentPanelView({
 
   // single-run parameter form
   const [paramInputs, setParamInputs] = useState<Record<string, string>>({});
-  const [floatRanges, setFloatRanges] = useState<Record<string, FloatRangeState>>({});
 
   const [configTitle, setConfigTitle] = useState<string>("");
   const [configTags, setConfigTags] = useState<string>("");
@@ -182,23 +209,13 @@ export default function ExperimentPanelView({
 
         // Param inputs: start from param_values, fallback to schema defaults
         const init: Record<string, string> = {};
-        const ranges: Record<string, FloatRangeState> = {};
-        const panelSweepKeys = new Set(
-          (p.panel?.fields ?? [])
-            .filter((f) => String(f.control ?? "").toLowerCase() === "sweep")
-            .map((f) => f.key)
-        );
-        for (const [k, schema] of Object.entries(p.parameters_schema ?? {})) {
+        for (const [k, schema] of Object.entries(p.param_schema ?? {})) {
           const v =
             p.param_values?.[k] ??
             (schema.default !== undefined ? schema.default : schema.type === "bool" ? false : "");
           init[k] = String(v);
-          if (panelSweepKeys.has(k)) {
-            ranges[k] = { enabled: false, start: String(v ?? ""), end: String(v ?? ""), step: "0.1" };
-          }
         }
         setParamInputs(init);
-        setFloatRanges(ranges);
 
         setConfigTitle(p.config_meta?.title ?? p.name);
         setConfigTags((p.tags ?? []).join(","));
@@ -214,16 +231,7 @@ export default function ExperimentPanelView({
     };
   }, [panelId, showToast]);
 
-  const schemaEntries = useMemo(() => Object.entries(panel?.parameters_schema ?? {}), [panel]);
-  const sweepKeys = useMemo(
-    () =>
-      new Set(
-        (panel?.panel?.fields ?? [])
-          .filter((f) => String(f.control ?? "").toLowerCase() === "sweep")
-          .map((f) => f.key)
-      ),
-    [panel]
-  );
+  const schemaEntries = useMemo(() => Object.entries(panel?.param_schema ?? {}), [panel]);
 
   function openDataViewer(rid: number, datasetName?: string) {
     const tabId = uid("tab");
@@ -252,31 +260,29 @@ export default function ExperimentPanelView({
     if (!panel) return null;
 
     const out: Record<string, any> = {};
-    for (const [k, field] of Object.entries(panel.parameters_schema ?? {})) {
-      const isSweep = sweepKeys.has(k);
-      if (isSweep && floatRanges[k]?.enabled) {
-        const start = Number(floatRanges[k].start);
-        const end = Number(floatRanges[k].end);
-        const step = Number(floatRanges[k].step);
-        if (Number.isFinite(start) && Number.isFinite(end) && Number.isFinite(step) && step !== 0) {
-          const values: number[] = [];
-          const dir = step > 0 ? 1 : -1;
-          for (let x = start; dir > 0 ? x <= end + 1e-12 : x >= end - 1e-12; x += step) {
-            values.push(Number(x.toFixed(10)));
-            if (values.length > 10000) break;
-          }
-          if (values.length > 0) {
-            out[k] = values;
-            continue;
-          }
-        }
-      }
+    for (const [k, field] of Object.entries(panel.param_schema ?? {})) {
       const raw = base[k] ?? "";
       const v = coerceValue(raw, field);
       if (v === null || v === undefined) continue;
       out[k] = v;
     }
     return out;
+  }
+
+  function getParamValidationErrors(base: Record<string, string>) {
+    if (!panel) return [];
+    const errors: string[] = [];
+    for (const [k, field] of Object.entries(panel.param_schema ?? {})) {
+      const raw = base[k] ?? "";
+      const error = validateParamInput(k, raw, field);
+      if (error) errors.push(error);
+    }
+    return errors;
+  }
+
+  function alertInvalidParams(errors: string[]) {
+    if (!errors.length) return;
+    window.alert(`Please fix the invalid parameter values before continuing.\n\n${errors.join("\n")}`);
   }
 
   function parseCsvValues(s: string) {
@@ -391,6 +397,12 @@ export default function ExperimentPanelView({
     if (!panel) return;
 
     try {
+      const validationErrors = getParamValidationErrors(paramInputs);
+      if (validationErrors.length) {
+        alertInvalidParams(validationErrors);
+        return;
+      }
+
       setLoading(true);
 
       const baseParamValues = buildParamValues(paramInputs) ?? {};
@@ -415,6 +427,12 @@ export default function ExperimentPanelView({
   async function onSaveConfig() {
     if (!panel) return;
     try {
+      const validationErrors = getParamValidationErrors(paramInputs);
+      if (validationErrors.length) {
+        alertInvalidParams(validationErrors);
+        return;
+      }
+
       const param_values = buildParamValues(paramInputs) ?? {};
       await syncPanelParams(param_values);
       const title = configTitle.trim() || panel.name;
@@ -436,6 +454,12 @@ export default function ExperimentPanelView({
   async function onUpdateConfig() {
     if (!panel?.config_id) return;
     try {
+      const validationErrors = getParamValidationErrors(paramInputs);
+      if (validationErrors.length) {
+        alertInvalidParams(validationErrors);
+        return;
+      }
+
       const param_values = buildParamValues(paramInputs) ?? {};
       const queue_defaults = buildQueueDefaults();
       await syncPanelParams(param_values);
@@ -455,6 +479,12 @@ export default function ExperimentPanelView({
   async function onSaveAsNewConfig() {
     if (!panel) return;
     try {
+      const validationErrors = getParamValidationErrors(paramInputs);
+      if (validationErrors.length) {
+        alertInvalidParams(validationErrors);
+        return;
+      }
+
       const param_values = buildParamValues(paramInputs) ?? {};
       await syncPanelParams(param_values);
       const title = configTitle.trim() || `${panel.name} (copy)`;
@@ -592,8 +622,6 @@ export default function ExperimentPanelView({
               const unit = field.unit ? ` ${field.unit}` : "";
               const typeLabel = field.type ? `[${field.type}]` : "";
               const numeric = field.type === "int" || field.type === "float";
-              const range = floatRanges[k];
-              const isSweep = sweepKeys.has(k);
               return (
                 <Stack key={k} direction="row" spacing={0.5} alignItems="center">
                   <Typography variant="body2" sx={{ width: 80, fontSize: 11.5, lineHeight: 1.1 }}>
@@ -607,62 +635,15 @@ export default function ExperimentPanelView({
                     />
                   ) : (
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.45, flexWrap: "wrap", minHeight: 26 }}>
-                      {!range?.enabled ? (
-                        <TextField
-                          size="small"
-                          value={raw}
-                          onChange={(e) => setParamInputs((s) => ({ ...s, [k]: e.target.value }))}
-                          type={numeric ? "number" : "text"}
-                          inputProps={{ step: field.type === "int" ? 1 : "any", min: field.min, max: field.max }}
-                          placeholder={field.type === "iterable" ? "e.g. 0,0.5,1.0" : undefined}
-                          sx={{ width: isSweep ? 92 : 132 }}
-                        />
-                      ) : null}
-                      {isSweep ? (
-                        <Button
-                          size="small"
-                          variant={range?.enabled ? "contained" : "outlined"}
-                          onClick={() =>
-                            setFloatRanges((prev) => ({
-                              ...prev,
-                              [k]: {
-                                ...(prev[k] ?? { enabled: false, start: raw || "0", end: raw || "1", step: "0.1" }),
-                                enabled: !(prev[k]?.enabled ?? false),
-                              },
-                            }))
-                          }
-                        >
-                          Sweep
-                        </Button>
-                      ) : null}
-                      {isSweep && range?.enabled ? (
-                        <>
-                          <TextField
-                            size="small"
-                            value={range.start}
-                            onChange={(e) => setFloatRanges((prev) => ({ ...prev, [k]: { ...(prev[k] ?? range), start: e.target.value } }))}
-                            placeholder="start"
-                            inputProps={{ step: "any" }}
-                            sx={{ width: 68 }}
-                          />
-                          <TextField
-                            size="small"
-                            value={range.end}
-                            onChange={(e) => setFloatRanges((prev) => ({ ...prev, [k]: { ...(prev[k] ?? range), end: e.target.value } }))}
-                            placeholder="end"
-                            inputProps={{ step: "any" }}
-                            sx={{ width: 68 }}
-                          />
-                          <TextField
-                            size="small"
-                            value={range.step}
-                            onChange={(e) => setFloatRanges((prev) => ({ ...prev, [k]: { ...(prev[k] ?? range), step: e.target.value } }))}
-                            placeholder="step"
-                            inputProps={{ step: "any" }}
-                            sx={{ width: 62 }}
-                          />
-                        </>
-                      ) : null}
+                      <TextField
+                        size="small"
+                        value={raw}
+                        onChange={(e) => setParamInputs((s) => ({ ...s, [k]: e.target.value }))}
+                        type={numeric ? "number" : "text"}
+                        inputProps={{ step: field.type === "int" ? 1 : "any", min: field.min, max: field.max }}
+                        placeholder={field.type === "iterable" ? "e.g. 0,0.5,1.0" : undefined}
+                        sx={{ width: 132 }}
+                      />
                     </Box>
                   )}
                   <Typography variant="caption" color="text.secondary" sx={{ minWidth: 16 }}>{unit}</Typography>

@@ -201,7 +201,7 @@ export function normalizeRun(raw: any): RunDetailResp {
 
   return {
     ...base,
-    parameters_schema: raw?.parameters_schema,
+    param_schema: raw?.param_schema ?? raw?.parameters_schema,
     param_values: raw?.param_values ?? raw?.arguments,
   };
 }
@@ -360,11 +360,11 @@ export const api = {
   },
 
   // TTL
-  getTtlDevices: () => request<TtlDevicesResp>("/ttl/devices/"),
+  getTtlDevices: () => request<TtlDevicesResp>("/devices/ttl/devices/"),
   setTtlLevel: (devices: string[], levels: string[]) =>
-    request<{ ok: boolean }>("/ttl/level/", { method: "POST", body: JSON.stringify({ devices, levels }) }),
+    request<{ ok: boolean }>("/devices/ttl/level/", { method: "POST", body: JSON.stringify({ devices, levels }) }),
   setTtlOverride: (devices: string[], values: boolean[]) =>
-    request<{ ok: boolean }>("/ttl/override/", { method: "POST", body: JSON.stringify({ devices, values }) }),
+    request<{ ok: boolean }>("/devices/ttl/override/", { method: "POST", body: JSON.stringify({ devices, values }) }),
 
   // Archives
   createArchive: (body: unknown) => request<{ archive_id: number; created_at: string }>("/archives/", { method: "POST", body: JSON.stringify(body) }),
