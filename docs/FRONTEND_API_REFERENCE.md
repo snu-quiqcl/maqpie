@@ -1,6 +1,6 @@
 # Frontend API Reference
 
-This document describes the API surface used by the React frontend in `iquip-web`.
+This document describes the API surface used by the React frontend in `maqpie`.
 It is written from the frontend point of view, based on:
 
 - [api.ts](/home/server/Desktop/Codes/ent/iquip-web/src/lib/api.ts)
