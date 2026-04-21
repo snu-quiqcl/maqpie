@@ -674,22 +674,23 @@ export default function App() {
         </div>
       </div>
 
+      <div className="windowArea">
+        {windows.filter((w) => w.workspaceId === activeWorkspaceId && !w.minimized).map((w) => (
+          <Window key={w.windowId} model={w} />
+        ))}
 
-      {windows.filter((w) => w.workspaceId === activeWorkspaceId && !w.minimized).map((w) => (
-        <Window key={w.windowId} model={w} />
-      ))}
+        {windows.some((w) => w.workspaceId === activeWorkspaceId && w.minimized) && (
+          <div className="minimized-window-dock">
+            {windows.filter((w) => w.workspaceId === activeWorkspaceId && w.minimized).map((w) => (
+              <MinimizedWindowItem key={w.windowId} model={w} />
+            ))}
+          </div>
+        )}
 
-      {windows.some((w) => w.workspaceId === activeWorkspaceId && w.minimized) && (
-        <div className="minimized-window-dock">
-          {windows.filter((w) => w.workspaceId === activeWorkspaceId && w.minimized).map((w) => (
-            <MinimizedWindowItem key={w.windowId} model={w} />
-          ))}
-        </div>
-      )}
-
-      {minimizedPanels.filter((p) => p.workspaceId === activeWorkspaceId).map((p) => (
-        <MinimizedPanelCard key={p.minimizedId} model={p} />
-      ))}
+        {minimizedPanels.filter((p) => p.workspaceId === activeWorkspaceId).map((p) => (
+          <MinimizedPanelCard key={p.minimizedId} model={p} />
+        ))}
+      </div>
 
       {toast && (
         <div className="toast">

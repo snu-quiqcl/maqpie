@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import OpenInNewIcon from "@mui/icons-material/OpenInNew";
 import MinimizeIcon from "@mui/icons-material/Minimize";
 import CropSquareIcon from "@mui/icons-material/CropSquare";
+import FilterNoneIcon from "@mui/icons-material/FilterNone";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { useAppStore } from "../state/store";
@@ -46,11 +46,13 @@ export default function Window({ model }: { model: WindowModel }) {
     startH: number;
     mode: "width" | "height" | "both";
   } | null>(null);
+  const restoreFrameRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null);
 
   // Clamp movement/resizing against the desktop rather than the full browser viewport.
   function getBounds() {
+    const windowArea = document.querySelector(".windowArea") as HTMLElement | null;
     const desktop = document.querySelector(".desktop") as HTMLElement | null;
-    const rect = desktop?.getBoundingClientRect();
+    const rect = windowArea?.getBoundingClientRect() ?? desktop?.getBoundingClientRect();
     return {
       width: rect?.width ?? window.innerWidth,
       height: rect?.height ?? window.innerHeight,
@@ -143,31 +145,23 @@ export default function Window({ model }: { model: WindowModel }) {
     window.addEventListener("mouseup", onUp);
   }
 
-  function popOutActive() {
-    if (model.locked) return;
-    if (!active) return;
-    const payload = encodeURIComponent(
-      JSON.stringify({
-        ...active,
-        originWindowId: model.windowId,
-        originWindow: {
-          windowId: model.windowId,
-          x: model.x,
-          y: model.y,
-          w: model.w,
-          h: model.h,
-          locked: Boolean(model.locked),
-        },
-      })
-    );
-    const url = `${window.location.origin}${window.location.pathname}?popout=1&tab=${payload}`;
-    const left = Math.max(0, Math.floor(window.screenX + 40));
-    const top = Math.max(0, Math.floor(window.screenY + 40));
-    const features = `popup=yes,width=${Math.max(360, Math.floor(model.w))},height=${Math.max(240, Math.floor(model.h))},left=${left},top=${top}`;
-    const w = window.open(url, "iquip_popout", features);
-    if (w) {
-      closeTab(model.windowId, active.tabId);
+  const bounds = getBounds();
+  const isMaximized = model.x === 0 && model.y === 0 && model.w >= bounds.width && model.h >= bounds.height;
+
+  function toggleMaximized() {
+    bringToFront(model.windowId);
+    if (isMaximized && restoreFrameRef.current) {
+      moveResizeWindow(model.windowId, restoreFrameRef.current);
+      restoreFrameRef.current = null;
+      return;
     }
+    restoreFrameRef.current = { x: model.x, y: model.y, w: model.w, h: model.h };
+    moveResizeWindow(model.windowId, {
+      x: 0,
+      y: 0,
+      w: bounds.width,
+      h: bounds.height,
+    });
   }
 
   function updateTabArrows() {
@@ -227,16 +221,14 @@ export default function Window({ model }: { model: WindowModel }) {
             >
               {model.minimized ? <CropSquareIcon fontSize="inherit" /> : <MinimizeIcon fontSize="inherit" />}
             </button>
-            {!model.locked && (
-              <button
-                className="trafficButton trafficZoom"
-                onClick={popOutActive}
-                title="Pop out tab"
-                aria-label="Pop out tab"
-              >
-                <OpenInNewIcon fontSize="inherit" />
-              </button>
-            )}
+            <button
+              className="trafficButton trafficZoom"
+              onClick={toggleMaximized}
+              title={isMaximized ? "Restore window" : "Maximize window"}
+              aria-label={isMaximized ? "Restore window" : "Maximize window"}
+            >
+              {isMaximized ? <FilterNoneIcon fontSize="inherit" /> : <CropSquareIcon fontSize="inherit" />}
+            </button>
             {!model.locked && (
               <button
                 className="trafficButton trafficClose"

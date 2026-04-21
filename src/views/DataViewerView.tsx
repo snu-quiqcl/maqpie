@@ -481,9 +481,10 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
   const sectionSx = {
     mt: 0.65,
     p: 0.65,
-    border: "1px solid var(--border)",
+    border: "1px solid color-mix(in srgb, var(--accent) 18%, var(--border))",
     borderRadius: 1,
-    background: "color-mix(in srgb, var(--panel2) 72%, transparent)",
+    background: "color-mix(in srgb, var(--accent) 9%, var(--panel2))",
+    boxShadow: "inset 0 1px 0 color-mix(in srgb, white 6%, transparent)",
   } as const;
   const sectionTitleSx = { display: "block", mb: 0.4, letterSpacing: "0.02em" } as const;
   const clampSelectSx = {
@@ -842,8 +843,18 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
   }
 
   return (
-    <Paper variant="outlined" sx={{ p: 1.05 }}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.75}>
+    <Paper
+      variant="outlined"
+      sx={{
+        p: 1.05,
+        height: "100%",
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={0.75} sx={{ flexShrink: 0 }}>
         <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
           {archiveMode ? `Archive ${archiveId}` : `Run ${rid}`}
         </Typography>
@@ -931,9 +942,34 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
         </Stack>
       </Stack>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: "224px 1fr", gap: 0.85, mt: 0.85, minHeight: 0, flex: 1 }}>
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "224px 1fr",
+          gap: 0.85,
+          mt: 0.85,
+          minHeight: 0,
+          flex: 1,
+          overflow: "hidden",
+          alignItems: "stretch",
+        }}
+      >
         {/* Keep controls independently scrollable so dense datasets do not push the plot off-screen. */}
-        <Box sx={{ minHeight: 0, maxHeight: "100%", overflow: "auto", pr: 0.25 }}>
+        <Box
+          sx={{
+            minHeight: 0,
+            height: "100%",
+            overflowY: "auto",
+            overflowX: "hidden",
+            pr: 0.35,
+            pl: 0.2,
+            py: 0.2,
+            borderRadius: 1.2,
+            border: "1px solid color-mix(in srgb, var(--accent) 16%, var(--border))",
+            background:
+              "linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, var(--panel2)) 0%, color-mix(in srgb, var(--accent) 4%, var(--panel2)) 100%)",
+          }}
+        >
           <Box sx={{ ...sectionSx, mt: 0 }}>
             <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
               Dataset
@@ -1284,14 +1320,14 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
 
         </Box>
 
-        <Box sx={{ minHeight: 0 }}>
+        <Box sx={{ minHeight: 0, height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <Typography variant="caption" color="text.secondary">
             rows: {Array.isArray(data) ? data.length : 0}
             {schemaMode
               ? ` · variable: ${selectedVariable || "?"} · column: ${selectedDataColumn || "?"}`
               : ` · x: ${xField || "?"} · y: ${yField || "?"}${plotMode === "2d" ? ` · z: ${zField || "?"}` : ""}`}
           </Typography>
-          <Box sx={{ mt: 0.6, height: 336 }}>
+          <Box sx={{ mt: 0.6, minHeight: 0, flex: 1 }}>
             <Plot
               data={plotTrace}
               layout={{

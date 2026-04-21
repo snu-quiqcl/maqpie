@@ -407,6 +407,12 @@ hr {
   background: transparent;
 }
 
+.windowArea {
+  position: absolute;
+  inset: 60px 0 0 0;
+  overflow: hidden;
+}
+
 .window-shell {
   position: absolute;
   filter: drop-shadow(0 14px 28px rgba(0, 0, 0, 0.14));
@@ -763,7 +769,7 @@ hr {
 .titlebar {
   height: 28px;
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   padding: 3px 8px;
   gap: 6px;
@@ -775,13 +781,17 @@ hr {
 }
 
 .titlebar .title {
+  min-width: 0;
+  align-self: center;
+  transform: translateY(-7px);
   font-weight: 700;
   font-size: 12px;
+  line-height: 1.1;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  text-align: center;
+  text-align: left;
   letter-spacing: 0.01em;
 }
 
@@ -791,13 +801,8 @@ hr {
 }
 
 .titlebar .trafficLights {
-  justify-self: start;
-}
-
-.titlebar::after {
-  content: "";
   justify-self: end;
-  width: 56px;
+  grid-column: 2;
 }
 
 .trafficButton {
