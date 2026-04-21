@@ -20,6 +20,9 @@ import type {
   Priority,
   DatasetBrief,
   TtlDevicesResp,
+  WorkspaceItem,
+  WorkspaceLayoutResp,
+  WorkspaceListResp,
 } from "./types";
 
 const DEFAULT_BASE =
@@ -281,6 +284,26 @@ export const api = {
     request<void>(`/panel-configs/${config_id}/`, { method: "DELETE" }),
   openPanelFromConfig: (config_id: string) =>
     request<PanelResp>("/panels/from-config/", { method: "POST", body: JSON.stringify({ config_id }) }),
+
+  // Workspaces
+  listWorkspaces: () => request<WorkspaceListResp>("/workspaces/"),
+  createWorkspace: (body: { name: string; order?: number }) =>
+    request<WorkspaceItem & { layout_snapshot?: unknown }>("/workspaces/", { method: "POST", body: JSON.stringify(body) }),
+  updateWorkspace: (workspace_id: string, body: { name?: string; order?: number }) =>
+    request<WorkspaceItem>(`/workspaces/${workspace_id}/`, { method: "PATCH", body: JSON.stringify(body) }),
+  deleteWorkspace: (workspace_id: string) => request<void>(`/workspaces/${workspace_id}/`, { method: "DELETE" }),
+  activateWorkspace: (workspace_id: string) =>
+    request<{ workspace_id: string; active_workspace_id: string }>(`/workspaces/${workspace_id}/activate/`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  getWorkspaceLayout: (workspace_id: string) =>
+    request<WorkspaceLayoutResp>(`/workspaces/${workspace_id}/layout/`),
+  saveWorkspaceLayout: (workspace_id: string, layout_snapshot: { windows: unknown[]; minimizedPanels: unknown[]; nextZ: number }) =>
+    request<WorkspaceLayoutResp>(`/workspaces/${workspace_id}/layout/`, {
+      method: "PUT",
+      body: JSON.stringify(layout_snapshot),
+    }),
 
   // Runs
   createRun: async (body: Record<string, unknown>) => {

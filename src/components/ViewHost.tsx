@@ -15,6 +15,7 @@ export default function ViewHost({ tab, compact, windowId }: { tab: TabModel; co
   const rid = typeof props.rid === "number" ? props.rid : 0;
   const datasetName = typeof props.datasetName === "string" ? props.datasetName : undefined;
   const archiveId = typeof props.archiveId === "number" ? props.archiveId : undefined;
+  const viewerState = props.viewerState && typeof props.viewerState === "object" ? props.viewerState as Record<string, unknown> : undefined;
 
   switch (tab.view) {
     case "runsManager":
@@ -24,7 +25,7 @@ export default function ViewHost({ tab, compact, windowId }: { tab: TabModel; co
     case "experimentPanel":
       return <ExperimentPanelView panelId={panelId} compact={compact} windowId={windowId} tabId={tab.tabId} />;
     case "dataViewer":
-      return <DataViewerView rid={rid} datasetName={datasetName} archiveId={archiveId} />;
+      return <DataViewerView rid={rid} datasetName={datasetName} archiveId={archiveId} tabId={tab.tabId} viewerState={viewerState} />;
     case "archives":
       return <ArchivesView />;
     case "panelConfigs":

@@ -39,6 +39,11 @@ export type MinimizedPanelModel = {
 };
 
 export type Toast = { id: string; title: string; message: string; ts: number };
+export type WorkspaceLayoutSnapshot = {
+  windows: WindowModel[];
+  minimizedPanels: MinimizedPanelModel[];
+  nextZ: number;
+};
 
 // Zustand keeps the desktop layout serializable so the UI can be restored across reloads.
 type AppState = {
@@ -70,6 +75,7 @@ type AppState = {
   addTabToWindow: (windowId: string, tab: TabModel, activate?: boolean) => void;
   closeTab: (windowId: string, tabId: string) => void;
   setActiveTab: (windowId: string, tabId: string) => void;
+  updateTabProps: (tabId: string, patch: Record<string, unknown>) => void;
 
   mergeTabIntoWindow: (fromWindowId: string, tabId: string, toWindowId: string) => void;
   detachTab: (windowId: string, tabId: string) => void;
@@ -80,6 +86,9 @@ type AppState = {
   showToast: (title: string, message: string) => void;
   clearToast: () => void;
 
+  exportWorkspaceSnapshot: (workspaceId?: string) => WorkspaceLayoutSnapshot;
+  importWorkspaceSnapshot: (workspaceId: string, snapshot?: Partial<WorkspaceLayoutSnapshot> | null) => void;
+  removeWorkspaceState: (workspaceId: string) => void;
   persist: () => void;
   rehydrate: () => void;
 };
@@ -153,6 +162,53 @@ function sanitizeMinimizedPanel(p: any): MinimizedPanelModel | null {
     z: toNumber(p.z, 1),
     sourceWindowId: p.sourceWindowId ? String(p.sourceWindowId) : undefined,
   };
+}
+
+function ensureSingletonWindowsForWorkspace(
+  windows: WindowModel[],
+  workspaceId: string
+): WindowModel[] {
+  const items = [...windows];
+  if (!items.some((w) => w.windowId === runsManagerWindowId(workspaceId))) {
+    items.unshift(defaultRunsManagerForWorkspace(workspaceId));
+  }
+  if (!items.some((w) => w.windowId === fileExplorerWindowId(workspaceId))) {
+    items.push(defaultFileExplorerForWorkspace(workspaceId));
+  }
+  return items.map((w) => {
+    if (w.windowId === runsManagerWindowId(workspaceId)) {
+      const next = defaultRunsManagerForWorkspace(workspaceId);
+      return {
+        ...w,
+        workspaceId,
+        locked: true,
+        tabs: next.tabs,
+        activeTabId: next.activeTabId,
+      };
+    }
+    if (w.windowId === fileExplorerWindowId(workspaceId)) {
+      const next = defaultFileExplorerForWorkspace(workspaceId);
+      return {
+        ...w,
+        workspaceId,
+        locked: true,
+        tabs: next.tabs,
+        activeTabId: next.activeTabId,
+      };
+    }
+    return { ...w, workspaceId };
+  });
+}
+
+function nextZForWorkspace(
+  windows: WindowModel[],
+  minimizedPanels: MinimizedPanelModel[],
+  fallback = 2
+) {
+  let maxZ = 1;
+  for (const w of windows) maxZ = Math.max(maxZ, w.z ?? 1);
+  for (const p of minimizedPanels) maxZ = Math.max(maxZ, p.z ?? 1);
+  return Math.max(maxZ + 1, fallback);
 }
 
 /** Singleton: Experiment Manager */
@@ -439,6 +495,25 @@ export const useAppStore = create<AppState>()(
       get().persist();
     },
 
+    updateTabProps: (tabId, patch) => {
+      set((s) => {
+        for (const window of s.windows) {
+          const tab = window.tabs.find((item) => item.tabId === tabId);
+          if (tab) {
+            tab.props = { ...(tab.props ?? {}), ...patch };
+            return;
+          }
+        }
+        for (const panel of s.minimizedPanels) {
+          if (panel.tab.tabId === tabId) {
+            panel.tab.props = { ...(panel.tab.props ?? {}), ...patch };
+            return;
+          }
+        }
+      });
+      get().persist();
+    },
+
     mergeTabIntoWindow: (fromWindowId, tabId, toWindowId) => {
       if (fromWindowId === toWindowId) return;
 
@@ -556,6 +631,50 @@ export const useAppStore = create<AppState>()(
     },
 
     clearToast: () => set((s) => void (s.toast = null)),
+
+    exportWorkspaceSnapshot: (workspaceId) => {
+      const targetWorkspaceId = workspaceId || get().activeWorkspaceId || DEFAULT_WORKSPACE_ID;
+      const windows = get().windows.filter((w) => w.workspaceId === targetWorkspaceId);
+      const minimizedPanels = get().minimizedPanels.filter((p) => p.workspaceId === targetWorkspaceId);
+      return {
+        windows,
+        minimizedPanels,
+        nextZ: nextZForWorkspace(windows, minimizedPanels, 2),
+      };
+    },
+
+    importWorkspaceSnapshot: (workspaceId, snapshot) => {
+      const windowsRaw = Array.isArray(snapshot?.windows) ? snapshot.windows : [];
+      const minimizedRaw = Array.isArray(snapshot?.minimizedPanels) ? snapshot.minimizedPanels : [];
+      const safeWindows = ensureSingletonWindowsForWorkspace(
+        windowsRaw.map(sanitizeWindow).filter(Boolean) as WindowModel[],
+        workspaceId
+      );
+      const safeMinimized = minimizedRaw
+        .map(sanitizeMinimizedPanel)
+        .filter(Boolean)
+        .map((panel) => ({ ...panel, workspaceId })) as MinimizedPanelModel[];
+
+      set((s) => {
+        s.windows = s.windows
+          .filter((w) => w.workspaceId !== workspaceId)
+          .concat(safeWindows.map((w) => ({ ...w, workspaceId })));
+        s.minimizedPanels = s.minimizedPanels
+          .filter((p) => p.workspaceId !== workspaceId)
+          .concat(safeMinimized);
+        s.nextZ = nextZForWorkspace(s.windows, s.minimizedPanels, snapshot?.nextZ ?? s.nextZ);
+      });
+      get().persist();
+    },
+
+    removeWorkspaceState: (workspaceId) => {
+      set((s) => {
+        s.windows = s.windows.filter((w) => w.workspaceId !== workspaceId);
+        s.minimizedPanels = s.minimizedPanels.filter((p) => p.workspaceId !== workspaceId);
+        s.nextZ = nextZForWorkspace(s.windows, s.minimizedPanels, 2);
+      });
+      get().persist();
+    },
 
     persist: () => {
       const s = get();

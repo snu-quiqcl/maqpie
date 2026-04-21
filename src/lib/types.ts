@@ -190,3 +190,27 @@ export type PanelConfigUpdateResp = {
   updated_at: string;
   updated_by: { user_id: number | null; username: string | null };
 };
+
+export type WorkspaceItem = {
+  workspace_id: string;
+  name: string;
+  order: number;
+  is_default: boolean;
+  updated_at?: string;
+};
+
+export type WorkspaceLayoutSnapshot = {
+  windows: unknown[];
+  minimizedPanels: unknown[];
+  nextZ: number;
+};
+
+export type WorkspaceListResp = {
+  items: WorkspaceItem[];
+  active_workspace_id: string;
+};
+
+export type WorkspaceLayoutResp = {
+  workspace_id: string;
+  layout_snapshot: WorkspaceLayoutSnapshot;
+};

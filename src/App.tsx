@@ -1,8 +1,8 @@
 // src/App.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Box, Button, IconButton, Menu, MenuItem, Paper, Stack, TextField, Typography } from "@mui/material";
 import SettingsIcon from "@mui/icons-material/Settings";
-import type { WindowModel } from "./state/store";
+import type { WindowModel, WorkspaceLayoutSnapshot as StoreWorkspaceLayoutSnapshot } from "./state/store";
 import Window from "./components/Window";
 import MinimizedPanelCard from "./components/MinimizedPanelCard";
 import MinimizedWindowItem from "./components/MinimizedWindowItem";
@@ -13,12 +13,11 @@ import { useAppStore } from "./state/store";
 import longLogo from "./assets/longlogo.png";
 import maqpieLogo from "./assets/maqpie_text.png";
 import { workspaceConfig } from "./config/workspace";
+import type { WorkspaceItem } from "./lib/types";
 
 const initialWorkspaceTabs = [
   { workspaceId: "workspace_main", name: "Main" },
 ];
-const WORKSPACE_PREVIEW_LS_KEY = "workspace_preview_tabs_v1";
-const WORKSPACE_PREVIEW_ACTIVE_LS_KEY = "workspace_preview_active_v1";
 
 // Small local ids are enough here because these tabs/windows only live in client state.
 function uid(prefix: string) {
@@ -48,6 +47,10 @@ export default function App() {
   const moveResizeWindow = useAppStore((s) => s.moveResizeWindow);
   const toggleWindowMinimized = useAppStore((s) => s.toggleWindowMinimized);
   const bringToFront = useAppStore((s) => s.bringToFront);
+  const exportWorkspaceSnapshot = useAppStore((s) => s.exportWorkspaceSnapshot);
+  const importWorkspaceSnapshot = useAppStore((s) => s.importWorkspaceSnapshot);
+  const removeWorkspaceState = useAppStore((s) => s.removeWorkspaceState);
+  const nextZ = useAppStore((s) => s.nextZ);
 
   const [u, setU] = useState("");
   const [p, setP] = useState("");
@@ -69,59 +72,14 @@ export default function App() {
     state: "checking",
     detail: "Checking backend...",
   });
-
-  useEffect(() => {
-    // Keep the workspace strip as a lightweight client-side affordance for now.
-    try {
-      const rawTabs = localStorage.getItem(WORKSPACE_PREVIEW_LS_KEY);
-      const rawActive = localStorage.getItem(WORKSPACE_PREVIEW_ACTIVE_LS_KEY);
-      if (!rawTabs) return;
-      const parsed = JSON.parse(rawTabs);
-      if (!Array.isArray(parsed) || parsed.length === 0) return;
-      const safeTabs = parsed
-        .map((item) => {
-          if (!item || typeof item !== "object") return null;
-          const workspaceId = String((item as { workspaceId?: unknown }).workspaceId ?? "").trim();
-          const name = String((item as { name?: unknown }).name ?? "").trim();
-          if (!workspaceId || !name) return null;
-          return { workspaceId, name };
-        })
-        .filter(Boolean) as Array<{ workspaceId: string; name: string }>;
-      if (safeTabs.length === 0) return;
-      const normalizedTabs = safeTabs.some((w) => w.workspaceId === "workspace_main")
-        ? safeTabs
-        : [{ workspaceId: "workspace_main", name: "Main" }, ...safeTabs];
-      setWorkspaceTabs(normalizedTabs);
-      if (rawActive && normalizedTabs.some((w) => w.workspaceId === rawActive)) {
-        setActiveWorkspaceTabId(rawActive);
-      } else {
-        setActiveWorkspaceTabId(normalizedTabs[0].workspaceId);
-      }
-    } catch {
-      // ignore invalid preview state
-    }
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem(WORKSPACE_PREVIEW_LS_KEY, JSON.stringify(workspaceTabs));
-  }, [workspaceTabs]);
-
-  useEffect(() => {
-    localStorage.setItem(WORKSPACE_PREVIEW_ACTIVE_LS_KEY, activeWorkspaceTabId);
-  }, [activeWorkspaceTabId]);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const workspaceLoadRef = useRef(0);
+  const suppressAutosaveRef = useRef(false);
+  const hydratedFromServerRef = useRef(false);
 
   useEffect(() => {
     setActiveWorkspaceId(activeWorkspaceTabId);
   }, [activeWorkspaceTabId, setActiveWorkspaceId]);
-
-  useEffect(() => {
-    if (!authed) return;
-    // Each workspace gets its own singleton windows the first time it becomes active.
-    const store = useAppStore.getState();
-    store.openOrFocusSingletonRunsManager();
-    store.openOrFocusSingletonFileExplorer();
-  }, [activeWorkspaceTabId, authed]);
-
 
   const popoutParams = new URLSearchParams(window.location.search);
   const isPopout = popoutParams.get("popout") === "1";
@@ -138,10 +96,98 @@ export default function App() {
   useEffect(() => {
     if (!authed) return;
     rehydrate();
-    openOrFocusRM();
-    openOrFocusFE();
+    hydratedFromServerRef.current = false;
+    setWorkspaceReady(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authed]);
+
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+
+    async function bootstrapWorkspaces() {
+      try {
+        const resp = await api.listWorkspaces();
+        if (cancelled) return;
+        const tabs = resp.items.length > 0
+          ? resp.items.map((item: WorkspaceItem) => ({ workspaceId: item.workspace_id, name: item.name }))
+          : initialWorkspaceTabs;
+        const activeId = tabs.some((item) => item.workspaceId === resp.active_workspace_id)
+          ? resp.active_workspace_id
+          : tabs[0].workspaceId;
+        setWorkspaceTabs(tabs);
+        setActiveWorkspaceTabId(activeId);
+        setWorkspaceReady(true);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast("Workspace sync failed", msg);
+        setWorkspaceTabs(initialWorkspaceTabs);
+        setActiveWorkspaceTabId(initialWorkspaceTabs[0].workspaceId);
+        setWorkspaceReady(true);
+      }
+    }
+
+    bootstrapWorkspaces();
+    return () => {
+      cancelled = true;
+    };
+  }, [authed, showToast]);
+
+  useEffect(() => {
+    if (!authed || !workspaceReady || !activeWorkspaceTabId) return;
+    const requestId = ++workspaceLoadRef.current;
+    let cancelled = false;
+
+    async function loadWorkspaceLayout() {
+      suppressAutosaveRef.current = true;
+      try {
+        const resp = await api.getWorkspaceLayout(activeWorkspaceTabId);
+        if (cancelled || requestId !== workspaceLoadRef.current) return;
+        importWorkspaceSnapshot(
+          activeWorkspaceTabId,
+          (resp.layout_snapshot ?? { windows: [], minimizedPanels: [], nextZ: 2 }) as Partial<StoreWorkspaceLayoutSnapshot>
+        );
+        hydratedFromServerRef.current = true;
+      } catch (e: unknown) {
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : String(e);
+          showToast("Workspace load failed", msg);
+          openOrFocusRM();
+          openOrFocusFE();
+        }
+      } finally {
+        window.setTimeout(() => {
+          if (!cancelled && requestId === workspaceLoadRef.current) {
+            suppressAutosaveRef.current = false;
+          }
+        }, 0);
+      }
+    }
+
+    loadWorkspaceLayout();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceTabId, authed, importWorkspaceSnapshot, openOrFocusFE, openOrFocusRM, showToast, workspaceReady]);
+
+  useEffect(() => {
+    if (!authed || !workspaceReady || !hydratedFromServerRef.current || suppressAutosaveRef.current) return;
+    const timer = window.setTimeout(() => {
+      if (suppressAutosaveRef.current) return;
+      const snapshot = exportWorkspaceSnapshot(activeWorkspaceTabId);
+      void api.saveWorkspaceLayout(activeWorkspaceTabId, snapshot);
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeWorkspaceTabId,
+    authed,
+    exportWorkspaceSnapshot,
+    nextZ,
+    minimizedPanels,
+    windows,
+    workspaceReady,
+  ]);
 
   useEffect(() => {
     if (!themeId || themeId === "default") document.body.removeAttribute("data-theme");
@@ -313,7 +359,30 @@ export default function App() {
     setUserId(null);
     setUsername(null);
     setAuthed(false);
+    setWorkspaceReady(false);
+    hydratedFromServerRef.current = false;
     showToast("Logged out", "Token cleared");
+  }
+
+  async function persistWorkspaceNow(workspaceId: string) {
+    if (!authed || !workspaceReady || !hydratedFromServerRef.current) return;
+    try {
+      const snapshot = exportWorkspaceSnapshot(workspaceId);
+      await api.saveWorkspaceLayout(workspaceId, snapshot);
+    } catch {
+      // autosave path already surfaces the general failure mode
+    }
+  }
+
+  async function selectWorkspace(workspaceId: string) {
+    if (!workspaceId || workspaceId === activeWorkspaceTabId) return;
+    await persistWorkspaceNow(activeWorkspaceTabId);
+    try {
+      await api.activateWorkspace(workspaceId);
+    } catch {
+      // last write wins: local intent still becomes active in this client
+    }
+    setActiveWorkspaceTabId(workspaceId);
   }
 
   function openPanelConfigs() {
@@ -364,10 +433,16 @@ export default function App() {
     addWindow(win);
   }
 
-  function addWorkspacePreviewTab() {
-    const workspaceId = uid("workspace");
-    setWorkspaceTabs((prev) => [...prev, { workspaceId, name: `Workspace ${prev.length + 1}` }]);
-    setActiveWorkspaceTabId(workspaceId);
+  async function addWorkspacePreviewTab() {
+    try {
+      await persistWorkspaceNow(activeWorkspaceTabId);
+      const created = await api.createWorkspace({ name: `Workspace ${workspaceTabs.length + 1}` });
+      setWorkspaceTabs((prev) => [...prev, { workspaceId: created.workspace_id, name: created.name }]);
+      setActiveWorkspaceTabId(created.workspace_id);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast("Workspace create failed", msg);
+    }
   }
 
   function openWorkspaceMenu(workspaceId: string, anchorEl: HTMLElement) {
@@ -390,15 +465,21 @@ export default function App() {
     closeWorkspaceMenu();
   }
 
-  function commitWorkspaceRename() {
+  async function commitWorkspaceRename() {
     if (!editingWorkspaceId) return;
     const trimmed = editingWorkspaceName.trim();
     if (trimmed) {
-      setWorkspaceTabs((prev) =>
-        prev.map((workspace) =>
-          workspace.workspaceId === editingWorkspaceId ? { ...workspace, name: trimmed } : workspace
-        )
-      );
+      try {
+        await api.updateWorkspace(editingWorkspaceId, { name: trimmed });
+        setWorkspaceTabs((prev) =>
+          prev.map((workspace) =>
+            workspace.workspaceId === editingWorkspaceId ? { ...workspace, name: trimmed } : workspace
+          )
+        );
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        showToast("Workspace rename failed", msg);
+      }
     }
     setEditingWorkspaceId(null);
     setEditingWorkspaceName("");
@@ -409,7 +490,7 @@ export default function App() {
     setEditingWorkspaceName("");
   }
 
-  function removeWorkspacePreviewTab(workspaceId: string) {
+  async function removeWorkspacePreviewTab(workspaceId: string) {
     if (workspaceId === "workspace_main") {
       closeWorkspaceMenu();
       return;
@@ -420,14 +501,24 @@ export default function App() {
       closeWorkspaceMenu();
       return;
     }
-    setWorkspaceTabs((prev) => {
-      if (prev.length <= 1) return prev;
-      const next = prev.filter((workspace) => workspace.workspaceId !== workspaceId);
+    try {
       if (activeWorkspaceTabId === workspaceId) {
-        setActiveWorkspaceTabId(next[0]?.workspaceId ?? initialWorkspaceTabs[0].workspaceId);
+        const fallbackId = workspaceTabs.find((workspace) => workspace.workspaceId !== workspaceId)?.workspaceId ?? initialWorkspaceTabs[0].workspaceId;
+        await persistWorkspaceNow(activeWorkspaceTabId);
+        try {
+          await api.activateWorkspace(fallbackId);
+        } catch {
+          // ignore activation race here
+        }
+        setActiveWorkspaceTabId(fallbackId);
       }
-      return next;
-    });
+      await api.deleteWorkspace(workspaceId);
+      removeWorkspaceState(workspaceId);
+      setWorkspaceTabs((prev) => prev.filter((workspace) => workspace.workspaceId !== workspaceId));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast("Workspace delete failed", msg);
+    }
     closeWorkspaceMenu();
   }
 
@@ -634,7 +725,9 @@ export default function App() {
                 <button
                   type="button"
                   className="workspaceTabLabel"
-                  onClick={() => setActiveWorkspaceTabId(workspace.workspaceId)}
+                  onClick={() => {
+                    void selectWorkspace(workspace.workspaceId);
+                  }}
                 >
                   {workspace.name}
                 </button>

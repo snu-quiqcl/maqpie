@@ -68,6 +68,33 @@ type PatchMsg =
   | { rid: number; name?: string; dataset_id?: string; type: "reset" }
   | { rid: number; name?: string; dataset_id?: string; type: "error"; message?: string; updated_at?: string };
 type AggMode = "none" | "sum" | "average" | "threshold";
+type DimensionMode = "fixed" | "aggregate" | "raw";
+type DimensionConfig = {
+  mode: DimensionMode;
+  value: string;
+  agg: Exclude<AggMode, "none">;
+  threshold: string;
+};
+type DataViewerPersistedState = {
+  selected?: string;
+  plotMode?: "1d" | "2d";
+  xField?: string;
+  yField?: string;
+  zField?: string;
+  dimensionConfigs?: Record<string, DimensionConfig>;
+  dimensionsOpen?: boolean;
+  selectedVariable?: string;
+  selectedDataColumn?: string;
+  queryText?: string;
+  queryOpen?: boolean;
+};
+type DataViewerViewProps = {
+  rid: number;
+  datasetName?: string;
+  archiveId?: number;
+  tabId?: string;
+  viewerState?: Record<string, unknown>;
+};
 
 function safeJsonParse<T>(text: string): T | null {
   try {
@@ -125,6 +152,25 @@ function getFieldValue(row: DataRow, field: string, index: number, arrayColumns?
   return null;
 }
 
+function getFieldRaw(row: DataRow, field: string, index: number, arrayColumns?: string[]): unknown {
+  if (field === "index") return index;
+  if (Array.isArray(row)) {
+    let idx = -1;
+    if (arrayColumns && arrayColumns.length > 0) idx = arrayColumns.indexOf(field);
+    if (idx < 0) {
+      const match = field.match(/^col(\d+)$/);
+      if (!match) return null;
+      idx = Number(match[1]);
+    }
+    return row[idx];
+  }
+  if (row && typeof row === "object") {
+    return (row as Record<string, unknown>)[field];
+  }
+  if (field === "value") return row;
+  return null;
+}
+
 function asStringList(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   return v.filter((x) => typeof x === "string").map((x) => String(x));
@@ -148,6 +194,30 @@ function aggregate(values: number[], mode: AggMode, threshold: number): number |
   return null;
 }
 
+function valueKey(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function valueLabel(value: unknown): string {
+  if (value === null || value === undefined) return "(empty)";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function extractScalarValue(raw: unknown): number | null {
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string") {
@@ -165,11 +235,13 @@ function extractScalarValue(raw: unknown): number | null {
 }
 
 // The Data Viewer handles live runs and archived datasets through the same plotting/query surface.
-export default function DataViewerView({ rid, datasetName, archiveId }: { rid: number; datasetName?: string; archiveId?: number }) {
+export default function DataViewerView({ rid, datasetName, archiveId, tabId = "", viewerState }: DataViewerViewProps) {
   const showToast = useAppStore((s) => s.showToast);
+  const updateTabProps = useAppStore((s) => s.updateTabProps);
+  const persisted = viewerState as DataViewerPersistedState | undefined;
 
   const [datasets, setDatasets] = useState<DatasetItem[]>([]);
-  const [selected, setSelected] = useState<string>(datasetName ?? "");
+  const [selected, setSelected] = useState<string>(persisted?.selected ?? datasetName ?? "");
   const [meta, setMeta] = useState<DatasetMeta | null>(null);
   const [data, setData] = useState<any[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
@@ -177,25 +249,20 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   const [baseData, setBaseData] = useState<any[]>([]);
   const [baseColumns, setBaseColumns] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [plotMode, setPlotMode] = useState<"1d" | "2d">("1d");
-  const [xField, setXField] = useState("");
-  const [yField, setYField] = useState("");
-  const [zField, setZField] = useState("");
-  const [xAgg, setXAgg] = useState<AggMode>("none");
-  const [yAgg, setYAgg] = useState<AggMode>("none");
-  const [zAgg, setZAgg] = useState<AggMode>("none");
-  const [xAggField, setXAggField] = useState("");
-  const [yAggField, setYAggField] = useState("");
-  const [zAggField, setZAggField] = useState("");
-  const [xThreshold, setXThreshold] = useState("0");
-  const [yThreshold, setYThreshold] = useState("0");
-  const [zThreshold, setZThreshold] = useState("0");
-  const [selectedVariable, setSelectedVariable] = useState("");
-  const [selectedDataColumn, setSelectedDataColumn] = useState("");
-  const [queryText, setQueryText] = useState("");
+  const [plotMode, setPlotMode] = useState<"1d" | "2d">(persisted?.plotMode === "2d" ? "2d" : "1d");
+  const [xField, setXField] = useState(typeof persisted?.xField === "string" ? persisted.xField : "");
+  const [yField, setYField] = useState(typeof persisted?.yField === "string" ? persisted.yField : "");
+  const [zField, setZField] = useState(typeof persisted?.zField === "string" ? persisted.zField : "");
+  const [dimensionConfigs, setDimensionConfigs] = useState<Record<string, DimensionConfig>>(
+    persisted?.dimensionConfigs && typeof persisted.dimensionConfigs === "object" ? persisted.dimensionConfigs : {}
+  );
+  const [dimensionsOpen, setDimensionsOpen] = useState(Boolean(persisted?.dimensionsOpen));
+  const [selectedVariable, setSelectedVariable] = useState(typeof persisted?.selectedVariable === "string" ? persisted.selectedVariable : "");
+  const [selectedDataColumn, setSelectedDataColumn] = useState(typeof persisted?.selectedDataColumn === "string" ? persisted.selectedDataColumn : "");
+  const [queryText, setQueryText] = useState(typeof persisted?.queryText === "string" ? persisted.queryText : "");
   const [queryActive, setQueryActive] = useState(false);
   const [querySummary, setQuerySummary] = useState<string>("");
-  const [queryOpen, setQueryOpen] = useState(false);
+  const [queryOpen, setQueryOpen] = useState(Boolean(persisted?.queryOpen));
 
   const [streaming, setStreaming] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -208,6 +275,58 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
   // Some tabs are opened before a concrete run is selected.
   const ridValid = rid && rid > 0;
   const archiveMode = Boolean(archiveId);
+  const persistedSnapshot = useMemo<DataViewerPersistedState>(() => ({
+    selected,
+    plotMode,
+    xField,
+    yField,
+    zField,
+    dimensionConfigs,
+    dimensionsOpen,
+    selectedVariable,
+    selectedDataColumn,
+    queryText,
+    queryOpen,
+  }), [
+    selected,
+    plotMode,
+    xField,
+    yField,
+    zField,
+    dimensionConfigs,
+    dimensionsOpen,
+    selectedVariable,
+    selectedDataColumn,
+    queryText,
+    queryOpen,
+  ]);
+
+  useEffect(() => {
+    setSelected(persisted?.selected ?? datasetName ?? "");
+    setPlotMode(persisted?.plotMode === "2d" ? "2d" : "1d");
+    setXField(typeof persisted?.xField === "string" ? persisted.xField : "");
+    setYField(typeof persisted?.yField === "string" ? persisted.yField : "");
+    setZField(typeof persisted?.zField === "string" ? persisted.zField : "");
+    setDimensionConfigs(
+      persisted?.dimensionConfigs && typeof persisted.dimensionConfigs === "object" ? persisted.dimensionConfigs : {}
+    );
+    setDimensionsOpen(Boolean(persisted?.dimensionsOpen));
+    setSelectedVariable(typeof persisted?.selectedVariable === "string" ? persisted.selectedVariable : "");
+    setSelectedDataColumn(typeof persisted?.selectedDataColumn === "string" ? persisted.selectedDataColumn : "");
+    setQueryText(typeof persisted?.queryText === "string" ? persisted.queryText : "");
+    setQueryOpen(Boolean(persisted?.queryOpen));
+  }, [datasetName, persisted, tabId]);
+
+  useEffect(() => {
+    if (!tabId) return;
+    const timer = window.setTimeout(() => {
+      updateTabProps(tabId, {
+        datasetName: selected,
+        viewerState: persistedSnapshot,
+      });
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [persistedSnapshot, selected, tabId, updateTabProps]);
 
   useEffect(() => {
     if (!ridValid || archiveMode) return;
@@ -501,10 +620,55 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     if (!xField || !fieldOptions.includes(xField)) setXField(fieldOptions[0]);
     if (!yField || !fieldOptions.includes(yField)) setYField(fieldOptions[1] ?? fieldOptions[0]);
     if (!zField || !fieldOptions.includes(zField)) setZField(fieldOptions[2] ?? fieldOptions[1] ?? fieldOptions[0]);
-    if (!xAggField || !fieldOptions.includes(xAggField)) setXAggField(fieldOptions[1] ?? fieldOptions[0]);
-    if (!yAggField || !fieldOptions.includes(yAggField)) setYAggField(fieldOptions[0]);
-    if (!zAggField || !fieldOptions.includes(zAggField)) setZAggField(fieldOptions[0]);
   }, [fieldOptions, xField, yField, zField]);
+
+  const hiddenFields = useMemo(() => {
+    const visible = new Set<string>([xField, yField]);
+    if (plotMode === "2d" && zField) visible.add(zField);
+    return fieldOptions.filter((field) => field !== "index" && !visible.has(field));
+  }, [fieldOptions, plotMode, xField, yField, zField]);
+
+  const valueOptionsByField = useMemo(() => {
+    const rows = Array.isArray(data) ? data : [];
+    const out: Record<string, Array<{ key: string; label: string }>> = {};
+    for (const field of hiddenFields) {
+      const seen = new Set<string>();
+      const options: Array<{ key: string; label: string }> = [];
+      rows.forEach((row, idx) => {
+        const raw = getFieldRaw(row as DataRow, field, idx, columns);
+        const key = valueKey(raw);
+        if (seen.has(key)) return;
+        seen.add(key);
+        options.push({ key, label: valueLabel(raw) });
+      });
+      out[field] = options;
+    }
+    return out;
+  }, [columns, data, hiddenFields]);
+
+  useEffect(() => {
+    setDimensionConfigs((prev) => {
+      const next: Record<string, DimensionConfig> = {};
+      let aggregateAssigned = false;
+      for (const field of hiddenFields) {
+        const options = valueOptionsByField[field] ?? [];
+        const prevConfig = prev[field];
+        const nextValue =
+          prevConfig?.value && options.some((opt) => opt.key === prevConfig.value)
+            ? prevConfig.value
+            : (options[0]?.key ?? "");
+        const wantsAggregate = prevConfig?.mode === "aggregate" && !aggregateAssigned;
+        next[field] = {
+          mode: wantsAggregate ? "aggregate" : (prevConfig?.mode === "raw" ? "raw" : "fixed"),
+          value: nextValue,
+          agg: prevConfig?.agg ?? "average",
+          threshold: prevConfig?.threshold ?? "0",
+        };
+        if (wantsAggregate) aggregateAssigned = true;
+      }
+      return next;
+    });
+  }, [hiddenFields, valueOptionsByField]);
 
   const plotTrace = useMemo<PlotData[]>(() => {
     if (!data || data.length === 0) return [];
@@ -546,7 +710,17 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
       ];
     }
 
-    const rows = Array.isArray(data) ? data : [];
+    const aggregateField = hiddenFields.find((field) => dimensionConfigs[field]?.mode === "aggregate") ?? null;
+    const aggregateConfig = aggregateField ? dimensionConfigs[aggregateField] : null;
+    const rows = (Array.isArray(data) ? data : []).filter((row, idx) =>
+      hiddenFields.every((field) => {
+        if (field === aggregateField) return true;
+        if (dimensionConfigs[field]?.mode === "raw") return true;
+        const selectedValue = dimensionConfigs[field]?.value ?? "";
+        if (!selectedValue) return true;
+        return valueKey(getFieldRaw(row as DataRow, field, idx, columns)) === selectedValue;
+      })
+    );
     const points = rows.map((row, idx) => {
       const xVal = getFieldValue(row as DataRow, xField, idx, columns);
       const yVal = getFieldValue(row as DataRow, yField, idx, columns);
@@ -556,53 +730,37 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
 
     let xyPoints = points.filter((p) => p.x !== null && p.y !== null) as Array<{ row: any; idx: number; x: number; y: number; z: number | null }>;
     let xyzPoints = points.filter((p) => p.x !== null && p.y !== null && p.z !== null) as Array<{ row: any; idx: number; x: number; y: number; z: number }>;
+    if (aggregateField && aggregateConfig) {
+      const thresholdValue = Number(aggregateConfig.threshold);
+      const threshold = Number.isFinite(thresholdValue) ? thresholdValue : 0;
 
-    const applyAxisAgg = (
-      src: Array<{ row: any; idx: number; x: number; y: number; z: number | null }>,
-      groupAxis: "x" | "y",
-      mode: AggMode,
-      valueField: string,
-      thresholdRaw: string
-    ) => {
-      if (mode === "none") return src;
-      const thr = Number(thresholdRaw);
-      const threshold = Number.isFinite(thr) ? thr : 0;
-      const groups = new Map<number, number[]>();
-      for (const p of src) {
-        const key = groupAxis === "x" ? p.x : p.y;
-        const m = getFieldValue(p.row as DataRow, valueField, p.idx, columns);
-        if (m === null) continue;
-        const arr = groups.get(key) ?? [];
-        arr.push(m);
-        groups.set(key, arr);
-      }
-      const out: Array<{ row: any; idx: number; x: number; y: number; z: number | null }> = [];
-      const keys = Array.from(groups.keys()).sort((a, b) => a - b);
-      for (const key of keys) {
-        const agg = aggregate(groups.get(key) ?? [], mode, threshold);
-        if (agg === null) continue;
-        if (groupAxis === "x") out.push({ row: null, idx: 0, x: key, y: agg, z: null });
-        else out.push({ row: null, idx: 0, x: agg, y: key, z: null });
-      }
-      return out;
-    };
-
-    xyPoints = applyAxisAgg(xyPoints, "x", xAgg, xAggField, xThreshold);
-    xyPoints = applyAxisAgg(xyPoints, "y", yAgg, yAggField, yThreshold);
-
-    if (plotMode === "2d") {
-      if (zAgg !== "none") {
-        const thr = Number(zThreshold);
-        const threshold = Number.isFinite(thr) ? thr : 0;
-        const vals: number[] = [];
-        for (const p of xyzPoints) {
-          const m = getFieldValue(p.row as DataRow, zAggField, p.idx, columns);
-          if (m !== null) vals.push(m);
+      if (plotMode === "1d") {
+        const grouped = new Map<number, number[]>();
+        for (const point of xyPoints) {
+          const values = grouped.get(point.x) ?? [];
+          values.push(point.y);
+          grouped.set(point.x, values);
         }
-        const aggZ = aggregate(vals, zAgg, threshold);
-        if (aggZ !== null) {
-          xyzPoints = xyzPoints.map((p) => ({ ...p, z: aggZ }));
+        xyPoints = Array.from(grouped.entries())
+          .sort((a, b) => a[0] - b[0])
+          .flatMap(([x, values]) => {
+            const y = aggregate(values, aggregateConfig.agg, threshold);
+            return y === null ? [] : [{ row: null, idx: 0, x, y, z: null }];
+          });
+      } else {
+        const grouped = new Map<string, { x: number; y: number; values: number[] }>();
+        for (const point of xyzPoints) {
+          const key = `${point.x}\u0000${point.y}`;
+          const entry = grouped.get(key) ?? { x: point.x, y: point.y, values: [] };
+          entry.values.push(point.z);
+          grouped.set(key, entry);
         }
+        xyzPoints = Array.from(grouped.values())
+          .sort((a, b) => (a.x - b.x) || (a.y - b.y))
+          .flatMap((entry) => {
+            const z = aggregate(entry.values, aggregateConfig.agg, threshold);
+            return z === null ? [] : [{ row: null, idx: 0, x: entry.x, y: entry.y, z }];
+          });
       }
     }
 
@@ -639,7 +797,7 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
     ];
   }, [
     data, plotMode, xField, yField, zField, schemaMode, schemaDataAxes, schemaDataAxesEffective, selectedDataColumn, columns,
-    xAgg, yAgg, zAgg, xAggField, yAggField, zAggField, xThreshold, yThreshold, zThreshold
+    hiddenFields, dimensionConfigs
   ]);
 
   if (!ridValid) {
@@ -894,67 +1052,189 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                     "& .MuiToggleButton-root": { px: 0.9, py: 0.15, fontSize: 11.5, minHeight: 24 },
                   }}
                 >
-                  <ToggleButton value="1d">1D</ToggleButton>
-                  <ToggleButton value="2d">2D</ToggleButton>
+                  <ToggleButton value="1d">2D</ToggleButton>
+                  <ToggleButton value="2d">3D</ToggleButton>
                 </ToggleButtonGroup>
               </Box>
+
+              {hiddenFields.length > 0 && (
+                <Box sx={sectionSx}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center">
+                    <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
+                      Dimensions
+                    </Typography>
+                    <Button size="small" variant="text" onClick={() => setDimensionsOpen((v) => !v)}>
+                      {dimensionsOpen ? "Hide" : "Show"}
+                    </Button>
+                  </Stack>
+                  <Collapse in={dimensionsOpen}>
+                    <Stack spacing={0.6}>
+                      {hiddenFields.map((field) => (
+                        <Box
+                          key={field}
+                          sx={{
+                            border: "1px solid color-mix(in srgb, var(--border) 80%, transparent)",
+                            borderRadius: 1,
+                            px: 0.65,
+                            py: 0.55,
+                          }}
+                        >
+                          <Stack direction="row" spacing={0.55} alignItems="center" flexWrap="wrap" useFlexGap>
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{ width: 56, flexShrink: 0, textTransform: "none" }}
+                            >
+                              {field}
+                            </Typography>
+                            <Select
+                              size="small"
+                              value={dimensionConfigs[field]?.mode ?? "fixed"}
+                              onChange={(e) => {
+                                const nextMode = e.target.value as DimensionMode;
+                                setDimensionConfigs((prev) => {
+                                  const next: Record<string, DimensionConfig> = {};
+                                  for (const hiddenField of hiddenFields) {
+                                    const current = prev[hiddenField];
+                                    const options = valueOptionsByField[hiddenField] ?? [];
+                                    const preservedMode =
+                                      nextMode === "aggregate" && current?.mode === "aggregate"
+                                        ? "fixed"
+                                        : (current?.mode ?? "fixed");
+                                    next[hiddenField] = {
+                                      mode: hiddenField === field ? nextMode : preservedMode,
+                                      value:
+                                        current?.value && options.some((opt) => opt.key === current.value)
+                                          ? current.value
+                                          : (options[0]?.key ?? ""),
+                                      agg: current?.agg ?? "average",
+                                      threshold: current?.threshold ?? "0",
+                                    };
+                                  }
+                                  return next;
+                                });
+                              }}
+                              sx={{ ...clampSelectSx, minWidth: 74, flexShrink: 0 }}
+                            >
+                              <MenuItem value="fixed">Fix</MenuItem>
+                              <MenuItem value="raw">Raw</MenuItem>
+                              <MenuItem value="aggregate">Agg</MenuItem>
+                            </Select>
+                            {dimensionConfigs[field]?.mode === "aggregate" ? (
+                              <>
+                                <Select
+                                  size="small"
+                                  value={dimensionConfigs[field]?.agg ?? "average"}
+                                  onChange={(e) =>
+                                    setDimensionConfigs((prev) => ({
+                                      ...prev,
+                                      [field]: {
+                                        ...(prev[field] ?? {
+                                          mode: "aggregate",
+                                          value: "",
+                                          agg: "average",
+                                          threshold: "0",
+                                        }),
+                                        agg: e.target.value as Exclude<AggMode, "none">,
+                                      },
+                                    }))
+                                  }
+                                  sx={{ ...clampSelectSx, minWidth: 104, flex: 1 }}
+                                >
+                                  <MenuItem value="average">Average</MenuItem>
+                                  <MenuItem value="sum">Sum</MenuItem>
+                                  <MenuItem value="threshold">Threshold</MenuItem>
+                                </Select>
+                                {dimensionConfigs[field]?.agg === "threshold" && (
+                                  <TextField
+                                    size="small"
+                                    value={dimensionConfigs[field]?.threshold ?? "0"}
+                                    onChange={(e) =>
+                                      setDimensionConfigs((prev) => ({
+                                        ...prev,
+                                        [field]: {
+                                          ...(prev[field] ?? {
+                                            mode: "aggregate",
+                                            value: "",
+                                            agg: "threshold",
+                                            threshold: "0",
+                                          }),
+                                          threshold: e.target.value,
+                                        },
+                                      }))
+                                    }
+                                    placeholder="Threshold"
+                                    sx={{ width: 104, flexShrink: 0 }}
+                                  />
+                                )}
+                              </>
+                            ) : dimensionConfigs[field]?.mode === "raw" ? (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                                sx={{ flex: 1, minWidth: 0, textAlign: "center" }}
+                              >
+                                All values
+                              </Typography>
+                            ) : (
+                              <Select
+                                size="small"
+                                value={dimensionConfigs[field]?.value ?? ""}
+                                onChange={(e) =>
+                                  setDimensionConfigs((prev) => ({
+                                    ...prev,
+                                    [field]: {
+                                      ...(prev[field] ?? {
+                                        mode: "fixed",
+                                        value: "",
+                                        agg: "average",
+                                        threshold: "0",
+                                      }),
+                                      value: e.target.value,
+                                    },
+                                  }))
+                                }
+                                sx={{ ...clampSelectSx, minWidth: 0, flex: 1 }}
+                              >
+                                {(valueOptionsByField[field] ?? []).map((option) => (
+                                  <MenuItem
+                                    key={`${field}-${option.key}`}
+                                    value={option.key}
+                                    sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                                  >
+                                    {option.label}
+                                  </MenuItem>
+                                ))}
+                              </Select>
+                            )}
+                          </Stack>
+                        </Box>
+                      ))}
+                    </Stack>
+                  </Collapse>
+                </Box>
+              )}
 
               <Box sx={sectionSx}>
                 <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   X axis
                 </Typography>
-                <Stack spacing={0.6}>
-                  <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth sx={clampSelectSx}>
-                    {fieldOptions.map((f) => (
-                      <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                    ))}
-                  </Select>
-                  <Stack direction="row" spacing={0.6}>
-                    <Select size="small" value={xAgg} onChange={(e) => setXAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
-                      <MenuItem value="none">none</MenuItem>
-                      <MenuItem value="sum">sum</MenuItem>
-                      <MenuItem value="average">average</MenuItem>
-                      <MenuItem value="threshold">threshold</MenuItem>
-                    </Select>
-                    <Select size="small" value={xAggField} onChange={(e) => setXAggField(e.target.value)} fullWidth sx={clampSelectSx}>
-                      {fieldOptions.map((f) => (
-                        <MenuItem key={`xagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                      ))}
-                    </Select>
-                  </Stack>
-                  {xAgg === "threshold" && (
-                    <TextField size="small" value={xThreshold} onChange={(e) => setXThreshold(e.target.value)} placeholder="threshold" fullWidth />
-                  )}
-                </Stack>
+                <Select size="small" value={xField} onChange={(e) => setXField(e.target.value)} fullWidth sx={clampSelectSx}>
+                  {fieldOptions.map((f) => (
+                    <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
+                  ))}
+                </Select>
               </Box>
 
               <Box sx={sectionSx}>
                 <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                   Y axis
                 </Typography>
-                <Stack spacing={0.6}>
-                  <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth sx={clampSelectSx}>
-                    {fieldOptions.map((f) => (
-                      <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                    ))}
-                  </Select>
-                  <Stack direction="row" spacing={0.6}>
-                    <Select size="small" value={yAgg} onChange={(e) => setYAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
-                      <MenuItem value="none">none</MenuItem>
-                      <MenuItem value="sum">sum</MenuItem>
-                      <MenuItem value="average">average</MenuItem>
-                      <MenuItem value="threshold">threshold</MenuItem>
-                    </Select>
-                    <Select size="small" value={yAggField} onChange={(e) => setYAggField(e.target.value)} fullWidth sx={clampSelectSx}>
-                      {fieldOptions.map((f) => (
-                        <MenuItem key={`yagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                      ))}
-                    </Select>
-                  </Stack>
-                  {yAgg === "threshold" && (
-                    <TextField size="small" value={yThreshold} onChange={(e) => setYThreshold(e.target.value)} placeholder="threshold" fullWidth />
-                  )}
-                </Stack>
+                <Select size="small" value={yField} onChange={(e) => setYField(e.target.value)} fullWidth sx={clampSelectSx}>
+                  {fieldOptions.map((f) => (
+                    <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
+                  ))}
+                </Select>
               </Box>
 
               {plotMode === "2d" && (
@@ -962,29 +1242,11 @@ export default function DataViewerView({ rid, datasetName, archiveId }: { rid: n
                   <Typography variant="caption" color="text.secondary" sx={sectionTitleSx}>
                     Z axis
                   </Typography>
-                  <Stack spacing={0.6}>
-                    <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth sx={clampSelectSx}>
-                      {fieldOptions.map((f) => (
-                        <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                      ))}
-                    </Select>
-                    <Stack direction="row" spacing={0.6}>
-                      <Select size="small" value={zAgg} onChange={(e) => setZAgg(e.target.value as AggMode)} sx={{ minWidth: 116 }}>
-                        <MenuItem value="none">none</MenuItem>
-                        <MenuItem value="sum">sum</MenuItem>
-                        <MenuItem value="average">average</MenuItem>
-                        <MenuItem value="threshold">threshold</MenuItem>
-                      </Select>
-                      <Select size="small" value={zAggField} onChange={(e) => setZAggField(e.target.value)} fullWidth sx={clampSelectSx}>
-                        {fieldOptions.map((f) => (
-                          <MenuItem key={`zagg-${f}`} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
-                        ))}
-                      </Select>
-                    </Stack>
-                    {zAgg === "threshold" && (
-                      <TextField size="small" value={zThreshold} onChange={(e) => setZThreshold(e.target.value)} placeholder="threshold" fullWidth />
-                    )}
-                  </Stack>
+                  <Select size="small" value={zField} onChange={(e) => setZField(e.target.value)} fullWidth sx={clampSelectSx}>
+                    {fieldOptions.map((f) => (
+                      <MenuItem key={f} value={f} sx={{ maxWidth: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{f}</MenuItem>
+                    ))}
+                  </Select>
                 </Box>
               )}
             </>

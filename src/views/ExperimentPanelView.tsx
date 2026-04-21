@@ -175,6 +175,7 @@ export default function ExperimentPanelView({
   const [configTags, setConfigTags] = useState<string>("");
   const [saveConfigOpen, setSaveConfigOpen] = useState(false);
   const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -192,6 +193,11 @@ export default function ExperimentPanelView({
         if (defaults?.scheduled_at) setScheduledAt(toLocalDateTimeInput(defaults.scheduled_at));
         if (defaults?.interval_min != null) setIntervalMin(String(defaults.interval_min));
         setScheduleTimezone(normalizePanelTimezone(defaults?.timezone));
+        setAdvancedOpen(Boolean(
+          (typeof defaults?.priority === "number" && defaults.priority !== 3) ||
+          (defaults?.schedule_type && defaults.schedule_type !== "NOW") ||
+          defaults?.recurrence
+        ));
         if (defaults?.recurrence) {
           const recurrence = defaults.recurrence;
           if (recurrence.kind === "interval" || recurrence.kind === "daily" || recurrence.kind === "weekly") {
@@ -232,6 +238,16 @@ export default function ExperimentPanelView({
   }, [panelId, showToast]);
 
   const schemaEntries = useMemo(() => Object.entries(panel?.param_schema ?? {}), [panel]);
+  const advancedSummary = useMemo(() => {
+    const parts: string[] = [];
+    if (priority !== 3) parts.push(`Priority ${priority}`);
+    if (scheduleType === "TIMED") parts.push(scheduledAt ? `Timed ${scheduledAt}` : "Timed");
+    if (scheduleType === "RECURRING") parts.push(`Recurring ${recurrenceKind}`);
+    if (scheduleType !== "NOW") parts.push(scheduleTimezone);
+    return parts.length > 0 ? parts.join(" · ") : "Default queue behavior";
+  }, [dailyTime, intervalMin, priority, recurrenceKind, scheduleTimezone, scheduleType, scheduledAt]);
+  const advancedControlWidth = 200;
+  const advancedLabelWidth = 72;
 
   function openDataViewer(rid: number, datasetName?: string) {
     const tabId = uid("tab");
@@ -577,31 +593,28 @@ export default function ExperimentPanelView({
       sx={{
         p: 0.75,
         "& .MuiButton-root": { minHeight: 24, px: 0.9, py: 0.2, fontSize: 11, textTransform: "none" },
-        "& .MuiInputBase-input": { py: "4px", fontSize: 11.5 },
-        "& .MuiSelect-select": { py: "4px", fontSize: 11.5 },
+        "& .MuiInputBase-input": { py: "3px", fontSize: 11.5 },
+        "& .MuiSelect-select": { py: "3px", fontSize: 11.5 },
       }}
     >
-      <Stack direction="row" justifyContent="space-between" spacing={0.5} alignItems="center">
-        <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>{panel.name}</Typography>
-        <Stack direction="row" spacing={0.5} alignItems="center">
-          {windowId && tabId ? (
-            <IconButton
-              size="small"
-              onClick={() => minimizePanelTab(windowId, tabId)}
-              sx={{
-                p: 0.35,
-                border: "1px solid var(--border)",
-                borderRadius: "999px",
-                background: "color-mix(in srgb, var(--panel2) 80%, transparent)",
-                "&:hover": { background: "color-mix(in srgb, var(--panel2) 92%, transparent)" },
-              }}
-              title="Minimize this panel"
-            >
-              <MinimizeIcon fontSize="inherit" />
-            </IconButton>
-          ) : null}
+      {windowId && tabId ? (
+        <Stack direction="row" justifyContent="flex-end" sx={{ mb: 0.25 }}>
+          <IconButton
+            size="small"
+            onClick={() => minimizePanelTab(windowId, tabId)}
+            sx={{
+              p: 0.35,
+              border: "1px solid var(--border)",
+              borderRadius: "999px",
+              background: "color-mix(in srgb, var(--panel2) 80%, transparent)",
+              "&:hover": { background: "color-mix(in srgb, var(--panel2) 92%, transparent)" },
+            }}
+            title="Minimize this panel"
+          >
+            <MinimizeIcon fontSize="inherit" />
+          </IconButton>
         </Stack>
-      </Stack>
+      ) : null}
 
       {compact ? (
         <Box sx={{ mt: 1.5 }}>
@@ -614,17 +627,41 @@ export default function ExperimentPanelView({
           </Stack>
         </Box>
       ) : (
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 0.95fr" }, gap: 0.65, mt: 0.65 }}>
-        <Box>
+      <Stack spacing={0.9} sx={{ mt: 0.75 }}>
+        <Box
+          sx={{
+            border: "1px solid var(--border)",
+            borderRadius: 2,
+            p: 0.9,
+            background: "color-mix(in srgb, var(--panel2) 58%, transparent)",
+          }}
+        >
           <Stack spacing={0.4}>
+            <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center" sx={{ mb: 0.2 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, letterSpacing: 0.2 }}>
+                Parameters
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {schemaEntries.length} field{schemaEntries.length === 1 ? "" : "s"}
+              </Typography>
+            </Stack>
             {schemaEntries.map(([k, field]) => {
               const raw = paramInputs[k] ?? "";
               const unit = field.unit ? ` ${field.unit}` : "";
               const typeLabel = field.type ? `[${field.type}]` : "";
               const numeric = field.type === "int" || field.type === "float";
               return (
-                <Stack key={k} direction="row" spacing={0.5} alignItems="center">
-                  <Typography variant="body2" sx={{ width: 80, fontSize: 11.5, lineHeight: 1.1 }}>
+                <Stack
+                  key={k}
+                  direction={{ xs: "column", sm: "row" }}
+                  spacing={0.5}
+                  alignItems={{ xs: "flex-start", sm: "center" }}
+                  sx={{
+                    py: 0.35,
+                    borderTop: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
+                  }}
+                >
+                  <Typography variant="body2" sx={{ width: { xs: "100%", sm: 110 }, fontSize: 11.5, lineHeight: 1.2 }}>
                     {k} <Typography component="span" variant="caption" color="text.secondary">{typeLabel}</Typography>
                   </Typography>
                   {field.type === "bool" ? (
@@ -632,9 +669,10 @@ export default function ExperimentPanelView({
                       size="small"
                       checked={raw === "true" || raw === "1"}
                       onChange={(e) => setParamInputs((s) => ({ ...s, [k]: e.target.checked ? "true" : "false" }))}
+                      sx={{ py: 0 }}
                     />
                   ) : (
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.45, flexWrap: "wrap", minHeight: 26 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.45, flexWrap: "wrap", minHeight: 26, flex: 1 }}>
                       <TextField
                         size="small"
                         value={raw}
@@ -642,7 +680,7 @@ export default function ExperimentPanelView({
                         type={numeric ? "number" : "text"}
                         inputProps={{ step: field.type === "int" ? 1 : "any", min: field.min, max: field.max }}
                         placeholder={field.type === "iterable" ? "e.g. 0,0.5,1.0" : undefined}
-                        sx={{ width: 132 }}
+                        sx={{ width: { xs: "100%", sm: 132 } }}
                       />
                     </Box>
                   )}
@@ -651,44 +689,73 @@ export default function ExperimentPanelView({
               );
             })}
           </Stack>
-
         </Box>
 
-        <Box>
-
-          <Stack spacing={0.5}>
-            <Stack direction="row" spacing={0.5} alignItems="center">
-              <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Priority</Typography>
+        <Stack direction={{ xs: "column", sm: "row" }} spacing={0.5}>
+          <Button size="small" variant="contained" onClick={onLaunch} disabled={loading}>
+            Queue Run
+          </Button>
+          <Button size="small" variant={advancedOpen ? "contained" : "outlined"} onClick={() => setAdvancedOpen((v) => !v)}>
+            {"Advanced settings"}
+          </Button>
+        </Stack>
+      </Stack>
+      )}
+      <Dialog
+        open={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        maxWidth="xs"
+        fullWidth={false}
+        PaperProps={{ sx: { width: "min(420px, calc(100% - 24px))", m: 1.5 } }}
+      >
+        <DialogTitle sx={{ overflowWrap: "anywhere", pb: 1, borderBottom: "1px solid var(--border)", textAlign: "center" }}>
+          Advanced settings
+        </DialogTitle>
+        <DialogContent sx={{ display: "grid", gap: 1.1, pt: 1.5, overflowX: "hidden", textAlign: "center", justifyItems: "center" }}>
+          <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 280, textAlign: "center" }}>
+            {advancedSummary}
+          </Typography>
+          <Stack spacing={1.2} sx={{ width: "100%", alignItems: "center" }}>
+            <Stack direction="row" spacing={1.5} alignItems="center" justifyContent="center" sx={{ width: "150%" }}>
+              <Typography variant="body2" sx={{ width: advancedLabelWidth, fontSize: 14, textAlign: "right" }}>Priority</Typography>
               <TextField
                 size="small"
                 type="number"
                 value={priority}
                 onChange={(e) => setPriority(Number(e.target.value))}
                 inputProps={{ step: 1 }}
-                sx={{ width: 112 }}
+                sx={{ width: 150 }}
               />
             </Stack>
 
-            <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-              <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Schedule</Typography>
-              <Select size="small" value={scheduleType} onChange={(e) => setScheduleType(e.target.value as ScheduleType)}>
+            <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="center" sx={{ width: "100%" }}>
+              <Typography variant="body2" sx={{ width: advancedLabelWidth, fontSize: 14, textAlign: "right" }}>Schedule</Typography>
+              <Select
+                size="small"
+                value={scheduleType}
+                onChange={(e) => setScheduleType(e.target.value as ScheduleType)}
+                sx={{ width: 150 }}
+              >
                 <MenuItem value="NOW">NOW</MenuItem>
                 <MenuItem value="TIMED">TIMED</MenuItem>
                 <MenuItem value="RECURRING">RECURRING</MenuItem>
               </Select>
-              {scheduleType === "TIMED" && (
+            </Stack>
+            {scheduleType === "TIMED" && (
+              <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                <Typography variant="body2" sx={{ fontSize: 11.5 }}>Scheduled time</Typography>
                 <TextField
                   size="small"
                   value={scheduledAt}
                   onChange={(e) => setScheduledAt(e.target.value)}
                   type="datetime-local"
-                  sx={{ width: 205, ml: 0.5 }}
+                  sx={{ width: advancedControlWidth }}
                 />
-              )}
-            </Stack>
+              </Stack>
+            )}
             {scheduleType !== "NOW" ? (
-              <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Timezone</Typography>
+              <Stack spacing={0.25} alignItems="center" sx={{ width: "100%" }}>
+                <Typography variant="body2" sx={{ fontSize: 11.5 }}>Timezone</Typography>
                 <Typography variant="caption" color="text.secondary">
                   {scheduleTimezone}
                 </Typography>
@@ -696,9 +763,14 @@ export default function ExperimentPanelView({
             ) : null}
             {scheduleType === "RECURRING" ? (
               <>
-                <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                  <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Pattern</Typography>
-                  <Select size="small" value={recurrenceKind} onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}>
+                <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                  <Typography variant="body2" sx={{ fontSize: 11.5 }}>Pattern</Typography>
+                  <Select
+                    size="small"
+                    value={recurrenceKind}
+                    onChange={(e) => setRecurrenceKind(e.target.value as RecurrenceKind)}
+                    sx={{ width: advancedControlWidth }}
+                  >
                     <MenuItem value="interval">Interval</MenuItem>
                     <MenuItem value="daily">Daily</MenuItem>
                     <MenuItem value="weekly">Weekly</MenuItem>
@@ -706,8 +778,8 @@ export default function ExperimentPanelView({
                 </Stack>
                 {recurrenceKind === "interval" ? (
                   <>
-                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Every</Typography>
+                    <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                      <Typography variant="body2" sx={{ fontSize: 11.5 }}>Every</Typography>
                       <TextField
                         size="small"
                         value={intervalMin}
@@ -715,97 +787,93 @@ export default function ExperimentPanelView({
                         type="number"
                         inputProps={{ step: 1, min: 1 }}
                         placeholder="minutes"
-                        sx={{ width: 108 }}
+                        sx={{ width: advancedControlWidth }}
                       />
                       <Typography variant="caption" color="text.secondary">minutes</Typography>
                     </Stack>
-                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Start</Typography>
-                      <Button size="small" variant={recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(true)}>
-                        Now
-                      </Button>
-                      <Button size="small" variant={!recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(false)}>
-                        Later
-                      </Button>
+                    <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                      <Typography variant="body2" sx={{ fontSize: 11.5 }}>Start</Typography>
+                      <Stack direction="row" spacing={0.5} justifyContent="center">
+                        <Button size="small" sx={{ width: 86 }} variant={recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(true)}>
+                          Now
+                        </Button>
+                        <Button size="small" sx={{ width: 86 }} variant={!recurrenceStartImmediately ? "contained" : "outlined"} onClick={() => setRecurrenceStartImmediately(false)}>
+                          Later
+                        </Button>
+                      </Stack>
                       {!recurrenceStartImmediately ? (
-                        <TextField size="small" type="datetime-local" value={recurrenceStartAt} onChange={(e) => setRecurrenceStartAt(e.target.value)} sx={{ width: 205 }} />
+                        <TextField size="small" type="datetime-local" value={recurrenceStartAt} onChange={(e) => setRecurrenceStartAt(e.target.value)} sx={{ width: advancedControlWidth }} />
                       ) : null}
                     </Stack>
                   </>
                 ) : null}
                 {recurrenceKind === "daily" ? (
-                  <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                    <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Daily</Typography>
-                    <TextField size="small" type="time" value={dailyTime} onChange={(e) => setDailyTime(e.target.value)} sx={{ width: 112 }} />
+                  <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                    <Typography variant="body2" sx={{ fontSize: 11.5 }}>Daily</Typography>
+                    <TextField size="small" type="time" value={dailyTime} onChange={(e) => setDailyTime(e.target.value)} sx={{ width: advancedControlWidth }} />
                     <Typography variant="caption" color="text.secondary">every</Typography>
-                    <TextField size="small" type="number" value={dailyEvery} onChange={(e) => setDailyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: 72 }} />
+                    <TextField size="small" type="number" value={dailyEvery} onChange={(e) => setDailyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: advancedControlWidth }} />
                     <Typography variant="caption" color="text.secondary">day(s)</Typography>
                   </Stack>
                 ) : null}
                 {recurrenceKind === "weekly" ? (
                   <>
-                    <Stack direction="row" spacing={0.5} alignItems="center" flexWrap="wrap">
-                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Weekly</Typography>
-                      <TextField size="small" type="time" value={weeklyTime} onChange={(e) => setWeeklyTime(e.target.value)} sx={{ width: 112 }} />
+                    <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                      <Typography variant="body2" sx={{ fontSize: 11.5 }}>Weekly</Typography>
+                      <TextField size="small" type="time" value={weeklyTime} onChange={(e) => setWeeklyTime(e.target.value)} sx={{ width: advancedControlWidth }} />
                       <Typography variant="caption" color="text.secondary">every</Typography>
-                      <TextField size="small" type="number" value={weeklyEvery} onChange={(e) => setWeeklyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: 72 }} />
+                      <TextField size="small" type="number" value={weeklyEvery} onChange={(e) => setWeeklyEvery(e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: advancedControlWidth }} />
                       <Typography variant="caption" color="text.secondary">week(s)</Typography>
                     </Stack>
-                    <Stack direction="row" spacing={0.4} alignItems="center" flexWrap="wrap">
-                      <Typography variant="body2" sx={{ width: 80, fontSize: 11.5 }}>Days</Typography>
-                      {WEEKDAY_LABELS.map((label, day) => {
-                        const active = weeklyDays.includes(day);
-                        return (
-                          <Button
-                            key={label}
-                            size="small"
-                            variant={active ? "contained" : "outlined"}
-                            onClick={() =>
-                              setWeeklyDays((prev) =>
-                                prev.includes(day) ? prev.filter((v) => v !== day) : [...prev, day].sort((a, b) => a - b)
-                              )
-                            }
-                          >
-                            {label}
-                          </Button>
-                        );
-                      })}
+                    <Stack spacing={0.35} alignItems="center" sx={{ width: "100%" }}>
+                      <Typography variant="body2" sx={{ fontSize: 11.5 }}>Days</Typography>
+                      <Stack direction="row" spacing={0.4} flexWrap="wrap" justifyContent="center">
+                        {WEEKDAY_LABELS.map((label, day) => {
+                          const active = weeklyDays.includes(day);
+                          return (
+                            <Button
+                              key={label}
+                              size="small"
+                              variant={active ? "contained" : "outlined"}
+                              onClick={() =>
+                                setWeeklyDays((prev) =>
+                                  prev.includes(day) ? prev.filter((v) => v !== day) : [...prev, day].sort((a, b) => a - b)
+                                )
+                              }
+                            >
+                              {label}
+                            </Button>
+                          );
+                        })}
+                      </Stack>
                     </Stack>
                   </>
                 ) : null}
               </>
             ) : null}
 
-          </Stack>
-
-          <Box sx={{ mt: 0.75 }}>
-            {panel.config_id ? (
-              <Stack direction="row" spacing={0.5}>
-                <Button size="small" variant="outlined" onClick={onUpdateConfig}>
-                  Update configuration
+            <Box sx={{ pt: 0.35, display: "flex", justifyContent: "center", width: "100%" }}>
+              {panel.config_id ? (
+                <Stack direction="column" spacing={0.5} alignItems="center" sx={{ width: "100%" }}>
+                  <Button size="small" variant="outlined" sx={{ width: advancedControlWidth }} onClick={onUpdateConfig}>
+                    Update configuration
+                  </Button>
+                  <Button size="small" variant="outlined" sx={{ width: advancedControlWidth }} onClick={() => setSaveAsOpen(true)}>
+                    Save as new configuration
+                  </Button>
+                </Stack>
+              ) : (
+                <Button size="small" variant="outlined" sx={{ width: advancedControlWidth }} onClick={() => setSaveConfigOpen(true)}>
+                  Save as configuration
                 </Button>
-                <Button size="small" variant="outlined" onClick={() => setSaveAsOpen(true)}>
-                  Save as new configuration
-                </Button>
-              </Stack>
-            ) : (
-              <Button size="small" variant="outlined" onClick={() => setSaveConfigOpen(true)}>
-                Save as configuration
-              </Button>
-            )}
-          </Box>
-
-          <Stack direction="row" spacing={0.5} sx={{ mt: 0.75 }}>
-            <Button size="small" variant="contained" onClick={onLaunch} disabled={loading}>
-              Queue Run
-            </Button>
-            <Button size="small" variant="text" disabled>
-              Save params
-            </Button>
+              )}
+            </Box>
           </Stack>
-        </Box>
-      </Box>
-      )}
+        </DialogContent>
+        <DialogActions sx={{ justifyContent: "center", pb: 1.5 }}>
+          <Button sx={{ width: advancedControlWidth }} onClick={() => setAdvancedOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
       <Dialog
         open={saveConfigOpen}
         onClose={() => setSaveConfigOpen(false)}

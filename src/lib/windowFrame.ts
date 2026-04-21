@@ -13,7 +13,7 @@ type Frame = { x: number; y: number; w: number; h: number };
 const PRESETS: Record<WindowViewKind, Frame> = {
   runsManager: { x: 24, y: 72, w: 560, h: 400 },
   fileExplorer: { x: 620, y: 72, w: 560, h: 400 },
-  experimentPanel: { x: 124, y: 102, w: 560, h: 430 },
+  experimentPanel: { x: 148, y: 110, w: 360, h: 300 },
   dataViewer: { x: 156, y: 96, w: 640, h: 460 },
   archives: { x: 156, y: 96, w: 620, h: 440 },
   panelConfigs: { x: 170, y: 96, w: 600, h: 430 },
