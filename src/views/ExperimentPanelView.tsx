@@ -1,16 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
 import { createWindowFrame } from "../lib/windowFrame";
-import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, MenuItem, Paper, Select, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, Checkbox, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, InputAdornment, MenuItem, Paper, Select, Stack, TextField, Typography } from "@mui/material";
 import MinimizeIcon from "@mui/icons-material/Minimize";
 import { api } from "../lib/api";
 import { useAppStore } from "../state/store";
 
 type ParamSchemaField = {
-  type: "int" | "float" | "string" | "bool" | "iterable";
-  default?: any;
+  type?: string;
+  default?: unknown;
+  choices?: string[];
   min?: number;
   max?: number;
+  global_min?: number;
+  global_max?: number;
+  global_step?: number;
+  step?: number;
   unit?: string;
+  scale?: number;
+  ndecimals?: number;
+};
+
+type ParamKind = "bool" | "enum" | "number" | "string" | "scannable" | "iterable";
+type NumericMode = "int" | "float";
+type ScanType = "NoScan" | "RangeScan" | "CenterScan" | "ExplicitScan";
+type ScanObject = {
+  ty: ScanType;
+  value?: number;
+  repetitions?: number;
+  start?: number;
+  stop?: number;
+  npoints?: number;
+  center?: number;
+  span?: number;
+  step?: number;
+  randomize?: boolean;
+  seed?: number | null;
+  sequence?: number[];
 };
 
 type PanelDTO = {
@@ -81,19 +106,214 @@ function uid(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function paramKind(field: ParamSchemaField): ParamKind {
+  const rawType = String(field.type ?? "").toLowerCase();
+  const defaultValue = field.default;
+  if (rawType === "bool" || rawType === "boolean" || rawType === "booleanvalue") return "bool";
+  if (rawType === "enum" || rawType === "enumeration" || rawType === "enumerationvalue" || Array.isArray(field.choices)) return "enum";
+  if (
+    rawType === "scannable" ||
+    rawType === "scan" ||
+    scanTypeOf(defaultValue) ||
+    (Array.isArray(defaultValue) && defaultValue.some((item) => scanTypeOf(item)))
+  ) return "scannable";
+  if (rawType === "int" || rawType === "float" || rawType === "number" || rawType === "auto" || rawType === "numbervalue") return "number";
+  if (rawType === "iterable") return "iterable";
+  return "string";
+}
+
+function numericMode(field: ParamSchemaField): NumericMode {
+  const rawType = String(field.type ?? "").toLowerCase();
+  if (rawType === "int") return "int";
+  if (rawType === "float") return "float";
+  if (field.ndecimals != null && field.ndecimals <= 0) return "int";
+  if (field.step != null && Number.isInteger(field.step) && field.scale == null) return "int";
+  return "float";
+}
+
+function scaleFor(field: ParamSchemaField) {
+  const scale = Number(field.scale ?? 1);
+  return Number.isFinite(scale) && scale !== 0 ? scale : 1;
+}
+
+function unitInputProps(field: ParamSchemaField) {
+  const unit = String(field.unit ?? "").trim();
+  return unit ? { endAdornment: <InputAdornment position="end">{unit}</InputAdornment> } : undefined;
+}
+
+function displayNumber(value: unknown, field: ParamSchemaField): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "";
+  const scaled = n / scaleFor(field);
+  if (field.ndecimals != null && Number.isFinite(field.ndecimals)) {
+    return scaled.toFixed(Math.max(0, Math.trunc(field.ndecimals)));
+  }
+  return String(scaled);
+}
+
+function parseDisplayNumber(raw: string, field: ParamSchemaField): number | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  const n = numericMode(field) === "int" ? Number.parseInt(value, 10) : Number.parseFloat(value);
+  if (!Number.isFinite(n)) return null;
+  const backendValue = n * scaleFor(field);
+  return numericMode(field) === "int" ? Math.trunc(backendValue) : backendValue;
+}
+
+function scanTypeOf(value: unknown): ScanType | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const ty = String((value as Record<string, unknown>).ty ?? "");
+  return ty === "NoScan" || ty === "RangeScan" || ty === "CenterScan" || ty === "ExplicitScan" ? ty : null;
+}
+
+function defaultScanObject(field: ParamSchemaField): ScanObject {
+  const rawDefault = field.default;
+  const candidate = Array.isArray(rawDefault) ? rawDefault.find((item) => scanTypeOf(item)) : rawDefault;
+  if (scanTypeOf(candidate)) return candidate as ScanObject;
+  const value = Number(rawDefault);
+  return {
+    ty: "NoScan",
+    value: Number.isFinite(value) ? value : 0,
+    repetitions: 1,
+  };
+}
+
+function scanDefaultForType(field: ParamSchemaField, ty: ScanType, current?: ScanObject): ScanObject {
+  const fallback = defaultScanObject(field);
+  const anchor = current ?? fallback;
+  const baseValue = anchor.value ?? anchor.start ?? anchor.center ?? fallback.value ?? field.global_min ?? 0;
+  if (ty === "NoScan") {
+    return { ty, value: baseValue, repetitions: anchor.repetitions ?? 1 };
+  }
+  if (ty === "RangeScan") {
+    return {
+      ty,
+      start: anchor.start ?? field.global_min ?? baseValue,
+      stop: anchor.stop ?? field.global_max ?? baseValue,
+      npoints: anchor.npoints ?? 10,
+      randomize: Boolean(anchor.randomize),
+      seed: anchor.seed ?? null,
+    };
+  }
+  if (ty === "CenterScan") {
+    return {
+      ty,
+      center: anchor.center ?? baseValue,
+      span: anchor.span ?? (Math.abs(Number(field.global_max ?? 1) - Number(field.global_min ?? 0)) || 1),
+      step: anchor.step ?? field.global_step ?? field.step ?? 1,
+      randomize: Boolean(anchor.randomize),
+      seed: anchor.seed ?? null,
+    };
+  }
+  return {
+    ty,
+    sequence: Array.isArray(anchor.sequence) && anchor.sequence.length ? anchor.sequence : [baseValue],
+  };
+}
+
+function sanitizeScanObject(scan: ScanObject): ScanObject {
+  if (scan.ty === "NoScan") {
+    return {
+      ty: "NoScan",
+      value: Number(scan.value ?? 0),
+      ...(scan.repetitions != null ? { repetitions: Math.max(1, Math.trunc(Number(scan.repetitions))) } : {}),
+    };
+  }
+  if (scan.ty === "RangeScan") {
+    return {
+      ty: "RangeScan",
+      start: Number(scan.start ?? 0),
+      stop: Number(scan.stop ?? 0),
+      npoints: Math.max(1, Math.trunc(Number(scan.npoints ?? 1))),
+      ...(scan.randomize != null ? { randomize: Boolean(scan.randomize) } : {}),
+      ...(scan.seed != null ? { seed: Math.trunc(Number(scan.seed)) } : {}),
+    };
+  }
+  if (scan.ty === "CenterScan") {
+    return {
+      ty: "CenterScan",
+      center: Number(scan.center ?? 0),
+      span: Number(scan.span ?? 0),
+      step: Number(scan.step ?? 0),
+      ...(scan.randomize != null ? { randomize: Boolean(scan.randomize) } : {}),
+      ...(scan.seed != null ? { seed: Math.trunc(Number(scan.seed)) } : {}),
+    };
+  }
+  return {
+    ty: "ExplicitScan",
+    sequence: Array.isArray(scan.sequence) ? scan.sequence.map(Number).filter((n) => Number.isFinite(n)) : [],
+  };
+}
+
+function scanToInputValue(value: unknown, field: ParamSchemaField): string {
+  const candidate = scanTypeOf(value) ? value : defaultScanObject(field);
+  return JSON.stringify(sanitizeScanObject(candidate as ScanObject));
+}
+
+function parseScanInput(raw: string, field: ParamSchemaField): ScanObject {
+  const parsed = (() => {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  })();
+  return scanTypeOf(parsed) ? parsed as ScanObject : defaultScanObject(field);
+}
+
+function scaledScanNumber(value: unknown, field: ParamSchemaField): string {
+  return displayNumber(value, field);
+}
+
+function unscaleScanNumber(raw: string, field: ParamSchemaField): number | null {
+  return parseDisplayNumber(raw, field);
+}
+
+function parseInteger(raw: string): number | null {
+  const n = Number.parseInt(String(raw ?? "").trim(), 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function parseOptionalInteger(raw: string): number | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+  return parseInteger(value);
+}
+
+function parseDisplayNumberList(raw: string, field: ParamSchemaField): number[] {
+  return String(raw ?? "")
+    .split(",")
+    .map((part) => unscaleScanNumber(part.trim(), field))
+    .filter((value): value is number => value !== null);
+}
+
+function formatDisplayNumberList(values: unknown, field: ParamSchemaField): string {
+  if (!Array.isArray(values)) return "";
+  return values.map((value) => displayNumber(value, field)).filter(Boolean).join(", ");
+}
+
+function paramInputValue(value: unknown, field: ParamSchemaField): string {
+  const kind = paramKind(field);
+  if (kind === "scannable") return scanToInputValue(value ?? field.default, field);
+  if (kind === "number") return displayNumber(value ?? field.default, field);
+  if (kind === "bool") return String(Boolean(value ?? field.default ?? false));
+  if (value === undefined || value === null) {
+    if (field.default === undefined || field.default === null) return "";
+    return String(field.default);
+  }
+  return String(value);
+}
+
 function coerceValue(raw: string, field: ParamSchemaField) {
   const value = String(raw ?? "").trim();
-  if (field.type === "bool") return value === "true" || value === "1";
+  const kind = paramKind(field);
+  if (kind === "bool") return value === "true" || value === "1";
+  if (kind === "scannable") return sanitizeScanObject(parseScanInput(raw, field));
   if (value.length === 0) return null;
-  if (field.type === "int") {
-    const n = Number.parseInt(value, 10);
-    return Number.isFinite(n) ? n : null;
+  if (kind === "number") {
+    return parseDisplayNumber(value, field);
   }
-  if (field.type === "float") {
-    const n = Number.parseFloat(value);
-    return Number.isFinite(n) ? n : null;
-  }
-  if (field.type === "iterable") {
+  if (kind === "iterable") {
     const items = value.split(",").map((part) => part.trim()).filter(Boolean);
     return items.length ? items : null;
   }
@@ -102,26 +322,36 @@ function coerceValue(raw: string, field: ParamSchemaField) {
 
 function validateParamInput(name: string, raw: string, field: ParamSchemaField): string | null {
   const value = String(raw ?? "").trim();
-  if (field.type === "bool") return null;
+  const kind = paramKind(field);
+  if (kind === "bool") return null;
+  if (kind === "scannable") {
+    const scan = parseScanInput(raw, field);
+    if (scan.ty === "NoScan" && scan.value == null) return `${name}: NoScan requires a value`;
+    if (scan.ty === "RangeScan" && (scan.start == null || scan.stop == null || scan.npoints == null)) return `${name}: RangeScan requires start, stop, and npoints`;
+    if (scan.ty === "CenterScan" && (scan.center == null || scan.span == null || scan.step == null)) return `${name}: CenterScan requires center, span, and step`;
+    if (scan.ty === "ExplicitScan" && (!Array.isArray(scan.sequence) || scan.sequence.length === 0)) return `${name}: ExplicitScan requires one or more values`;
+    return null;
+  }
   if (value.length === 0) return null;
 
-  if (field.type === "int") {
+  if (kind === "number" && numericMode(field) === "int") {
     if (!/^-?\d+$/.test(value)) return `${name}: expected an integer`;
-    const n = Number.parseInt(value, 10);
+    const n = parseDisplayNumber(value, field);
+    if (n == null) return `${name}: expected an integer`;
     if (field.min != null && n < field.min) return `${name}: must be >= ${field.min}`;
     if (field.max != null && n > field.max) return `${name}: must be <= ${field.max}`;
     return null;
   }
 
-  if (field.type === "float") {
-    const n = Number.parseFloat(value);
-    if (!Number.isFinite(n)) return `${name}: expected a number`;
+  if (kind === "number") {
+    const n = parseDisplayNumber(value, field);
+    if (n == null || !Number.isFinite(n)) return `${name}: expected a number`;
     if (field.min != null && n < field.min) return `${name}: must be >= ${field.min}`;
     if (field.max != null && n > field.max) return `${name}: must be <= ${field.max}`;
     return null;
   }
 
-  if (field.type === "iterable") {
+  if (kind === "iterable") {
     const items = value.split(",").map((part) => part.trim()).filter(Boolean);
     if (!items.length) return `${name}: enter one or more comma-separated values`;
     return null;
@@ -218,8 +448,8 @@ export default function ExperimentPanelView({
         for (const [k, schema] of Object.entries(p.param_schema ?? {})) {
           const v =
             p.param_values?.[k] ??
-            (schema.default !== undefined ? schema.default : schema.type === "bool" ? false : "");
-          init[k] = String(v);
+            (schema.default !== undefined ? schema.default : paramKind(schema) === "bool" ? false : "");
+          init[k] = paramInputValue(v, schema);
         }
         setParamInputs(init);
 
@@ -299,6 +529,154 @@ export default function ExperimentPanelView({
   function alertInvalidParams(errors: string[]) {
     if (!errors.length) return;
     window.alert(`Please fix the invalid parameter values before continuing.\n\n${errors.join("\n")}`);
+  }
+
+  function updateParamInput(name: string, value: string) {
+    setParamInputs((s) => ({ ...s, [name]: value }));
+  }
+
+  function updateScanParam(name: string, field: ParamSchemaField, updater: (scan: ScanObject) => ScanObject) {
+    setParamInputs((s) => {
+      const current = parseScanInput(s[name] ?? "", field);
+      return { ...s, [name]: JSON.stringify(updater(current)) };
+    });
+  }
+
+  function renderNumberInput(name: string, raw: string, field: ParamSchemaField, width: number | string = 132) {
+    const step = field.step != null ? field.step / scaleFor(field) : numericMode(field) === "int" ? 1 : "any";
+    const min = field.min != null ? field.min / scaleFor(field) : undefined;
+    const max = field.max != null ? field.max / scaleFor(field) : undefined;
+    return (
+      <TextField
+        size="small"
+        value={raw}
+        onChange={(e) => updateParamInput(name, e.target.value)}
+        type="number"
+        InputProps={unitInputProps(field)}
+        inputProps={{ step, min, max }}
+        sx={{ width: { xs: "100%", sm: width } }}
+      />
+    );
+  }
+
+  function renderScannableInput(name: string, raw: string, field: ParamSchemaField) {
+    const scan = parseScanInput(raw, field);
+    const scanTypes: ScanType[] = ["NoScan", "RangeScan", "CenterScan", "ExplicitScan"];
+    const numberFieldSx = { width: { xs: "100%", sm: field.unit ? 118 : 92 } };
+    const scanNumberInputProps = unitInputProps(field);
+    const scanStep = field.global_step != null ? field.global_step / scaleFor(field) : field.step != null ? field.step / scaleFor(field) : "any";
+    const scanMin = field.global_min != null ? field.global_min / scaleFor(field) : field.min != null ? field.min / scaleFor(field) : undefined;
+    const scanMax = field.global_max != null ? field.global_max / scaleFor(field) : field.max != null ? field.max / scaleFor(field) : undefined;
+    const scanInputProps = { step: scanStep, min: scanMin, max: scanMax };
+    const updateNumber = (key: keyof ScanObject, value: string) => {
+      updateScanParam(name, field, (current) => {
+        const next = { ...current };
+        const parsed = unscaleScanNumber(value, field);
+        if (parsed === null) delete next[key];
+        else (next as Record<string, unknown>)[key] = parsed;
+        return next;
+      });
+    };
+    const updateInt = (key: keyof ScanObject, value: string) => {
+      updateScanParam(name, field, (current) => {
+        const next = { ...current };
+        const parsed = parseOptionalInteger(value);
+        if (parsed === null) delete next[key];
+        else (next as Record<string, unknown>)[key] = parsed;
+        return next;
+      });
+    };
+    const updateRandomize = (checked: boolean) => {
+      updateScanParam(name, field, (current) => ({ ...current, randomize: checked }));
+    };
+
+    return (
+      <Stack spacing={0.55} sx={{ flex: 1, minWidth: 0 }}>
+        <Stack direction="row" spacing={0.55} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Select
+            size="small"
+            value={scan.ty}
+            onChange={(e) => {
+              const ty = e.target.value as ScanType;
+              updateScanParam(name, field, (current) => scanDefaultForType(field, ty, current));
+            }}
+            sx={{ width: { xs: "100%", sm: 132 } }}
+          >
+            {scanTypes.map((ty) => (
+              <MenuItem key={ty} value={ty}>{ty}</MenuItem>
+            ))}
+          </Select>
+          {scan.ty === "NoScan" && (
+            <>
+              <TextField
+                size="small"
+                label="Value"
+                value={scaledScanNumber(scan.value, field)}
+                onChange={(e) => updateNumber("value", e.target.value)}
+                type="number"
+                InputProps={scanNumberInputProps}
+                inputProps={scanInputProps}
+                sx={numberFieldSx}
+              />
+              <TextField
+                size="small"
+                label="Reps"
+                value={scan.repetitions ?? ""}
+                onChange={(e) => updateInt("repetitions", e.target.value)}
+                type="number"
+                inputProps={{ step: 1, min: 1 }}
+                sx={numberFieldSx}
+              />
+            </>
+          )}
+          {scan.ty === "RangeScan" && (
+            <>
+              <TextField size="small" label="Start" value={scaledScanNumber(scan.start, field)} onChange={(e) => updateNumber("start", e.target.value)} type="number" InputProps={scanNumberInputProps} inputProps={scanInputProps} sx={numberFieldSx} />
+              <TextField size="small" label="Stop" value={scaledScanNumber(scan.stop, field)} onChange={(e) => updateNumber("stop", e.target.value)} type="number" InputProps={scanNumberInputProps} inputProps={scanInputProps} sx={numberFieldSx} />
+              <TextField size="small" label="Points" value={scan.npoints ?? ""} onChange={(e) => updateInt("npoints", e.target.value)} type="number" inputProps={{ step: 1, min: 1 }} sx={numberFieldSx} />
+            </>
+          )}
+          {scan.ty === "CenterScan" && (
+            <>
+              <TextField size="small" label="Center" value={scaledScanNumber(scan.center, field)} onChange={(e) => updateNumber("center", e.target.value)} type="number" InputProps={scanNumberInputProps} inputProps={scanInputProps} sx={numberFieldSx} />
+              <TextField size="small" label="Span" value={scaledScanNumber(scan.span, field)} onChange={(e) => updateNumber("span", e.target.value)} type="number" InputProps={scanNumberInputProps} inputProps={scanInputProps} sx={numberFieldSx} />
+              <TextField size="small" label="Step" value={scaledScanNumber(scan.step, field)} onChange={(e) => updateNumber("step", e.target.value)} type="number" InputProps={scanNumberInputProps} inputProps={scanInputProps} sx={numberFieldSx} />
+            </>
+          )}
+          {scan.ty === "ExplicitScan" && (
+            <TextField
+              size="small"
+              label="Sequence"
+              value={formatDisplayNumberList(scan.sequence, field)}
+              onChange={(e) => updateScanParam(name, field, (current) => ({ ...current, sequence: parseDisplayNumberList(e.target.value, field) }))}
+              placeholder="0, 0.5, 1.0"
+              InputProps={scanNumberInputProps}
+              sx={{ width: { xs: "100%", sm: field.unit ? 330 : 286 } }}
+            />
+          )}
+        </Stack>
+        {(scan.ty === "RangeScan" || scan.ty === "CenterScan") && (
+          <Stack direction="row" spacing={0.8} alignItems="center" flexWrap="wrap" useFlexGap>
+            <Checkbox
+              size="small"
+              checked={Boolean(scan.randomize)}
+              onChange={(e) => updateRandomize(e.target.checked)}
+              sx={{ py: 0 }}
+            />
+            <Typography variant="caption" color="text.secondary">Randomize</Typography>
+            <TextField
+              size="small"
+              label="Seed"
+              value={scan.seed ?? ""}
+              onChange={(e) => updateInt("seed", e.target.value)}
+              type="number"
+              inputProps={{ step: 1 }}
+              sx={{ width: { xs: "100%", sm: 96 } }}
+            />
+          </Stack>
+        )}
+      </Stack>
+    );
   }
 
   function parseCsvValues(s: string) {
@@ -647,15 +1025,14 @@ export default function ExperimentPanelView({
             </Stack>
             {schemaEntries.map(([k, field]) => {
               const raw = paramInputs[k] ?? "";
-              const unit = field.unit ? ` ${field.unit}` : "";
-              const typeLabel = field.type ? `[${field.type}]` : "";
-              const numeric = field.type === "int" || field.type === "float";
+              const kind = paramKind(field);
+              const typeLabel = kind === "number" ? `[${numericMode(field)}]` : field.type ? `[${field.type}]` : "";
               return (
                 <Stack
                   key={k}
                   direction={{ xs: "column", sm: "row" }}
                   spacing={0.5}
-                  alignItems={{ xs: "flex-start", sm: "center" }}
+                  alignItems={{ xs: "flex-start", sm: kind === "scannable" ? "flex-start" : "center" }}
                   sx={{
                     py: 0.35,
                     borderTop: "1px solid color-mix(in srgb, var(--border) 72%, transparent)",
@@ -664,27 +1041,42 @@ export default function ExperimentPanelView({
                   <Typography variant="body2" sx={{ width: { xs: "100%", sm: 110 }, fontSize: 11.5, lineHeight: 1.2 }}>
                     {k} <Typography component="span" variant="caption" color="text.secondary">{typeLabel}</Typography>
                   </Typography>
-                  {field.type === "bool" ? (
+                  {kind === "bool" ? (
                     <Checkbox
                       size="small"
                       checked={raw === "true" || raw === "1"}
-                      onChange={(e) => setParamInputs((s) => ({ ...s, [k]: e.target.checked ? "true" : "false" }))}
+                      onChange={(e) => updateParamInput(k, e.target.checked ? "true" : "false")}
                       sx={{ py: 0 }}
                     />
+                  ) : kind === "enum" ? (
+                    <Select
+                      size="small"
+                      value={raw}
+                      onChange={(e) => updateParamInput(k, e.target.value)}
+                      sx={{ width: { xs: "100%", sm: 180 } }}
+                    >
+                      {(field.choices ?? []).map((choice) => (
+                        <MenuItem key={choice} value={choice}>{choice}</MenuItem>
+                      ))}
+                    </Select>
+                  ) : kind === "number" ? (
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.45, flexWrap: "wrap", minHeight: 26, flex: 1 }}>
+                      {renderNumberInput(k, raw, field)}
+                    </Box>
+                  ) : kind === "scannable" ? (
+                    renderScannableInput(k, raw, field)
                   ) : (
                     <Box sx={{ display: "flex", alignItems: "center", gap: 0.45, flexWrap: "wrap", minHeight: 26, flex: 1 }}>
                       <TextField
                         size="small"
                         value={raw}
-                        onChange={(e) => setParamInputs((s) => ({ ...s, [k]: e.target.value }))}
-                        type={numeric ? "number" : "text"}
-                        inputProps={{ step: field.type === "int" ? 1 : "any", min: field.min, max: field.max }}
-                        placeholder={field.type === "iterable" ? "e.g. 0,0.5,1.0" : undefined}
+                        onChange={(e) => updateParamInput(k, e.target.value)}
+                        type="text"
+                        placeholder={kind === "iterable" ? "e.g. 0,0.5,1.0" : undefined}
                         sx={{ width: { xs: "100%", sm: 132 } }}
                       />
                     </Box>
                   )}
-                  <Typography variant="caption" color="text.secondary" sx={{ minWidth: 16 }}>{unit}</Typography>
                 </Stack>
               );
             })}

@@ -75,6 +75,8 @@ type DimensionConfig = {
   agg: Exclude<AggMode, "none">;
   threshold: string;
 };
+const DIMENSION_LABEL_MAX_CHARS = 12;
+
 type DataViewerPersistedState = {
   selected?: string;
   plotMode?: "1d" | "2d";
@@ -216,6 +218,16 @@ function valueLabel(value: unknown): string {
   } catch {
     return String(value);
   }
+}
+
+function truncateLabel(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  if (maxLength <= 3) return value.slice(0, maxLength);
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function firstIncluded(candidates: string[], options: string[]) {
+  return candidates.find((candidate) => options.includes(candidate));
 }
 
 function extractScalarValue(raw: unknown): number | null {
@@ -618,10 +630,25 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
 
   useEffect(() => {
     if (fieldOptions.length === 0) return;
-    if (!xField || !fieldOptions.includes(xField)) setXField(fieldOptions[0]);
-    if (!yField || !fieldOptions.includes(yField)) setYField(fieldOptions[1] ?? fieldOptions[0]);
-    if (!zField || !fieldOptions.includes(zField)) setZField(fieldOptions[2] ?? fieldOptions[1] ?? fieldOptions[0]);
-  }, [fieldOptions, xField, yField, zField]);
+    const dataFields = schemaDataAxesEffective.filter((field) => fieldOptions.includes(field));
+    const paramFields = schemaParamAxes.filter((field) => fieldOptions.includes(field));
+    const preferredX =
+      firstIncluded(["pulse_time_us", "pulse_time", "time_us", "time"], paramFields) ??
+      paramFields[0] ??
+      firstIncluded(["shot", "shots", "shot_index"], dataFields) ??
+      dataFields[0] ??
+      fieldOptions[0];
+    const preferredY =
+      dataFields.find((field) => field !== preferredX && /pmt|count/i.test(field)) ??
+      dataFields.find((field) => field !== preferredX) ??
+      fieldOptions.find((field) => field !== preferredX) ??
+      preferredX;
+    if (!xField || !fieldOptions.includes(xField)) setXField(preferredX);
+    if (!yField || !fieldOptions.includes(yField)) setYField(preferredY);
+    if (!zField || !fieldOptions.includes(zField)) {
+      setZField(fieldOptions.find((field) => field !== preferredX && field !== preferredY) ?? preferredY);
+    }
+  }, [fieldOptions, schemaDataAxesEffective, schemaParamAxes, xField, yField, zField]);
 
   const hiddenFields = useMemo(() => {
     const visible = new Set<string>([xField, yField]);
@@ -660,7 +687,7 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
             : (options[0]?.key ?? "");
         const wantsAggregate = prevConfig?.mode === "aggregate" && !aggregateAssigned;
         next[field] = {
-          mode: wantsAggregate ? "aggregate" : (prevConfig?.mode === "raw" ? "raw" : "fixed"),
+          mode: wantsAggregate ? "aggregate" : (prevConfig?.mode ?? "raw"),
           value: nextValue,
           agg: prevConfig?.agg ?? "average",
           threshold: prevConfig?.threshold ?? "0",
@@ -1062,9 +1089,6 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
                   Reset
                 </Button>
               </Stack>
-              <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.6 }}>
-                `SELECT`, `WHERE`, `GROUP BY`, `AGG`, `ORDER BY`, `LIMIT`
-              </Typography>
               {querySummary ? (
                 <Typography variant="caption" sx={{ display: "block", mt: 0.3, color: "var(--accent-2)" }}>
                   {querySummary}
@@ -1119,13 +1143,21 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
                             <Typography
                               variant="caption"
                               color="text.secondary"
-                              sx={{ width: 56, flexShrink: 0, textTransform: "none" }}
+                              title={field}
+                              sx={{
+                                width: 56,
+                                flexShrink: 0,
+                                textTransform: "none",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
                             >
-                              {field}
+                              {truncateLabel(field, DIMENSION_LABEL_MAX_CHARS)}
                             </Typography>
                             <Select
                               size="small"
-                              value={dimensionConfigs[field]?.mode ?? "fixed"}
+                              value={dimensionConfigs[field]?.mode ?? "raw"}
                               onChange={(e) => {
                                 const nextMode = e.target.value as DimensionMode;
                                 setDimensionConfigs((prev) => {
@@ -1135,8 +1167,8 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
                                     const options = valueOptionsByField[hiddenField] ?? [];
                                     const preservedMode =
                                       nextMode === "aggregate" && current?.mode === "aggregate"
-                                        ? "fixed"
-                                        : (current?.mode ?? "fixed");
+                                        ? "raw"
+                                        : (current?.mode ?? "raw");
                                     next[hiddenField] = {
                                       mode: hiddenField === field ? nextMode : preservedMode,
                                       value:

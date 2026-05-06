@@ -24,11 +24,38 @@ export type FileItem = {
   modified_at: string;
 };
 
+export type ScanObject =
+  | { ty: "NoScan"; value: number; repetitions?: number }
+  | { ty: "RangeScan"; start: number; stop: number; npoints: number; randomize?: boolean; seed?: number | null }
+  | { ty: "CenterScan"; center: number; span: number; step: number; randomize?: boolean; seed?: number | null }
+  | { ty: "ExplicitScan"; sequence: number[] };
+
+type NumericParamSchema = {
+  type: "float" | "int" | "number" | "auto" | "NumberValue";
+  default?: number;
+  min?: number;
+  max?: number;
+  unit?: string;
+  scale?: number;
+  step?: number;
+  ndecimals?: number;
+};
+
 export type ParamSchema =
-  | { type: "float"; default?: number; min?: number; max?: number; unit?: string }
-  | { type: "int"; default?: number; min?: number; max?: number; unit?: string }
-  | { type: "string"; default?: string }
-  | { type: "bool"; default?: boolean };
+  | NumericParamSchema
+  | { type: "string" | "StringValue"; default?: string }
+  | { type: "bool" | "boolean" | "BooleanValue"; default?: boolean }
+  | { type: "enum" | "EnumerationValue"; default: string; choices: string[] }
+  | {
+      type: "scannable" | "Scannable";
+      default: ScanObject | ScanObject[];
+      global_min?: number;
+      global_max?: number;
+      global_step?: number;
+      unit?: string;
+      scale?: number;
+      ndecimals?: number;
+    };
 
 export type PanelCreateReq = {
   script_path: string;
