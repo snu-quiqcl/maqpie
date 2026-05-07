@@ -3,10 +3,10 @@
 This document describes the API surface used by the React frontend in `maqpie`.
 It is written from the frontend point of view, based on:
 
-- [api.ts](/home/server/Desktop/Codes/ent/maqpie/src/lib/api.ts)
-- [types.ts](/home/server/Desktop/Codes/ent/maqpie/src/lib/types.ts)
-- backend routing in [urls.py](/home/server/Desktop/Codes/ent/quail/quail/urls.py)
-- websocket routing in [routing.py](/home/server/Desktop/Codes/ent/quail/datahandler/routing.py)
+- `maqpie/src/lib/api.ts`
+- `maqpie/src/lib/types.ts`
+- backend routing in `quail/quail/urls.py`
+- websocket routing in `quail/datahandler/routing.py`
 
 ## Conventions
 
@@ -84,6 +84,83 @@ Notes:
 - `daily` uses `time`, optional `every_n_days`.
 - `weekly` uses `time`, `weekdays`, optional `every_n_weeks`.
 - `weekdays` use `0-6` for `Mon-Sun`.
+
+### Parameter Schema
+
+Panel and run detail responses expose editable experiment parameters through
+`param_schema` and `param_values`.
+
+Supported schema types:
+
+```text
+float | int | number | auto | NumberValue
+string | StringValue
+bool | boolean | BooleanValue
+enum | EnumerationValue
+scannable | Scannable
+```
+
+Numeric schemas may include:
+
+```json
+{
+  "type": "float",
+  "default": 1.25,
+  "unit": "MHz",
+  "scale": 1000000,
+  "step": 1000,
+  "min": -100000000,
+  "max": 100000000,
+  "ndecimals": 3
+}
+```
+
+The UI displays numeric values as `value / scale` when `scale` is provided and
+sends backend values as `display_value * scale`.
+
+Enumeration schemas use:
+
+```json
+{
+  "type": "enum",
+  "default": "cool",
+  "choices": ["cool", "detect"]
+}
+```
+
+Scannable schemas use one declared scan object or a list of scan objects as
+`default`:
+
+```json
+{
+  "type": "scannable",
+  "default": {
+    "ty": "RangeScan",
+    "start": 0,
+    "stop": 20,
+    "npoints": 11,
+    "randomize": false,
+    "seed": null
+  },
+  "unit": "us",
+  "scale": 1,
+  "global_min": 0,
+  "global_max": 20,
+  "global_step": 1,
+  "ndecimals": 3
+}
+```
+
+Supported scan objects:
+
+- `NoScan`: `value`, optional `repetitions`
+- `RangeScan`: `start`, `stop`, `npoints`, optional `randomize`, optional `seed`
+- `CenterScan`: `center`, `span`, `step`, optional `randomize`, optional `seed`
+- `ExplicitScan`: `sequence`
+
+The frontend locks the scannable scan type to the object declared by the
+experiment inspection. Users can edit fields inside that object, but cannot
+switch a `RangeScan` parameter into a `CenterScan` from the UI.
 
 ## Auth
 
@@ -472,6 +549,146 @@ Expected response:
 
 - No body required by the frontend.
 
+## Workspaces
+
+Workspaces store the user's desktop/window layout. All workspace endpoints are
+authenticated and scoped to the current user.
+
+### `GET /workspaces/`
+
+Used by: `api.listWorkspaces()`
+
+Expected response:
+
+```json
+{
+  "items": [
+    {
+      "workspace_id": "main",
+      "name": "Main",
+      "order": 0,
+      "is_default": true,
+      "updated_at": "2026-03-17T10:00:00Z"
+    }
+  ],
+  "active_workspace_id": "main"
+}
+```
+
+### `POST /workspaces/`
+
+Used by: `api.createWorkspace(body)`
+
+Request body:
+
+```json
+{
+  "name": "Workspace 2",
+  "order": 1
+}
+```
+
+Expected response:
+
+```json
+{
+  "workspace_id": "ws_abcd1234",
+  "name": "Workspace 2",
+  "order": 1,
+  "is_default": false,
+  "layout_snapshot": {
+    "windows": [],
+    "minimizedPanels": [],
+    "nextZ": 2
+  },
+  "created_at": "2026-03-17T10:00:00Z",
+  "updated_at": "2026-03-17T10:00:00Z"
+}
+```
+
+Creating a workspace also makes it the active workspace for the user.
+
+### `PATCH /workspaces/<workspace_id>/`
+
+Used by: `api.updateWorkspace(workspace_id, body)`
+
+Request body:
+
+```json
+{
+  "name": "Renamed Workspace",
+  "order": 2
+}
+```
+
+Expected response:
+
+- updated workspace object
+
+### `DELETE /workspaces/<workspace_id>/`
+
+Used by: `api.deleteWorkspace(workspace_id)`
+
+Expected response:
+
+- No body required by the frontend.
+
+The backend rejects deletion of the default workspace.
+
+### `POST /workspaces/<workspace_id>/activate/`
+
+Used by: `api.activateWorkspace(workspace_id)`
+
+Request body:
+
+```json
+{}
+```
+
+Expected response:
+
+```json
+{
+  "workspace_id": "ws_abcd1234",
+  "active_workspace_id": "ws_abcd1234"
+}
+```
+
+### `GET /workspaces/<workspace_id>/layout/`
+
+Used by: `api.getWorkspaceLayout(workspace_id)`
+
+Expected response:
+
+```json
+{
+  "workspace_id": "ws_abcd1234",
+  "layout_snapshot": {
+    "windows": [],
+    "minimizedPanels": [],
+    "nextZ": 2
+  }
+}
+```
+
+### `PUT /workspaces/<workspace_id>/layout/`
+
+Used by: `api.saveWorkspaceLayout(workspace_id, layout_snapshot)`
+
+Request body:
+
+```json
+{
+  "windows": [],
+  "minimizedPanels": [],
+  "nextZ": 2
+}
+```
+
+Expected response:
+
+- same shape as `GET /workspaces/<workspace_id>/layout/`
+
 ## Runs
 
 ### `POST /runs/`
@@ -646,6 +863,9 @@ Expected response:
   "status": "Experiment aborted"
 }
 ```
+
+The frontend only requires a status-like response. Its TypeScript helper allows
+`{rid, status}`, but the current backend returns only `status`.
 
 For recurring runs this also cancels the parent schedule and queued future occurrences.
 
