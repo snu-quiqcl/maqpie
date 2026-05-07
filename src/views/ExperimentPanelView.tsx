@@ -178,39 +178,6 @@ function defaultScanObject(field: ParamSchemaField): ScanObject {
   };
 }
 
-function scanDefaultForType(field: ParamSchemaField, ty: ScanType, current?: ScanObject): ScanObject {
-  const fallback = defaultScanObject(field);
-  const anchor = current ?? fallback;
-  const baseValue = anchor.value ?? anchor.start ?? anchor.center ?? fallback.value ?? field.global_min ?? 0;
-  if (ty === "NoScan") {
-    return { ty, value: baseValue, repetitions: anchor.repetitions ?? 1 };
-  }
-  if (ty === "RangeScan") {
-    return {
-      ty,
-      start: anchor.start ?? field.global_min ?? baseValue,
-      stop: anchor.stop ?? field.global_max ?? baseValue,
-      npoints: anchor.npoints ?? 10,
-      randomize: Boolean(anchor.randomize),
-      seed: anchor.seed ?? null,
-    };
-  }
-  if (ty === "CenterScan") {
-    return {
-      ty,
-      center: anchor.center ?? baseValue,
-      span: anchor.span ?? (Math.abs(Number(field.global_max ?? 1) - Number(field.global_min ?? 0)) || 1),
-      step: anchor.step ?? field.global_step ?? field.step ?? 1,
-      randomize: Boolean(anchor.randomize),
-      seed: anchor.seed ?? null,
-    };
-  }
-  return {
-    ty,
-    sequence: Array.isArray(anchor.sequence) && anchor.sequence.length ? anchor.sequence : [baseValue],
-  };
-}
-
 function sanitizeScanObject(scan: ScanObject): ScanObject {
   if (scan.ty === "NoScan") {
     return {
@@ -258,7 +225,10 @@ function parseScanInput(raw: string, field: ParamSchemaField): ScanObject {
       return null;
     }
   })();
-  return scanTypeOf(parsed) ? parsed as ScanObject : defaultScanObject(field);
+  const declared = defaultScanObject(field);
+  if (!scanTypeOf(parsed)) return declared;
+  const scan = parsed as ScanObject;
+  return scan.ty === declared.ty ? scan : declared;
 }
 
 function scaledScanNumber(value: unknown, field: ParamSchemaField): string {
@@ -561,7 +531,6 @@ export default function ExperimentPanelView({
 
   function renderScannableInput(name: string, raw: string, field: ParamSchemaField) {
     const scan = parseScanInput(raw, field);
-    const scanTypes: ScanType[] = ["NoScan", "RangeScan", "CenterScan", "ExplicitScan"];
     const numberFieldSx = { width: { xs: "100%", sm: field.unit ? 118 : 92 } };
     const scanNumberInputProps = unitInputProps(field);
     const scanStep = field.global_step != null ? field.global_step / scaleFor(field) : field.step != null ? field.step / scaleFor(field) : "any";
@@ -596,15 +565,10 @@ export default function ExperimentPanelView({
           <Select
             size="small"
             value={scan.ty}
-            onChange={(e) => {
-              const ty = e.target.value as ScanType;
-              updateScanParam(name, field, (current) => scanDefaultForType(field, ty, current));
-            }}
+            disabled
             sx={{ width: { xs: "100%", sm: 132 } }}
           >
-            {scanTypes.map((ty) => (
-              <MenuItem key={ty} value={ty}>{ty}</MenuItem>
-            ))}
+            <MenuItem value={scan.ty}>{scan.ty}</MenuItem>
           </Select>
           {scan.ty === "NoScan" && (
             <>
