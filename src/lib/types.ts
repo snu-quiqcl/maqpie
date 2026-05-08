@@ -146,6 +146,9 @@ export type DatasetDataResp = {
   name: string;
   columns?: string[];
   data: unknown;
+  truncated?: boolean;
+  row_count?: number | null;
+  sent_rows?: number | null;
 };
 
 export type DatasetQueryResp = {

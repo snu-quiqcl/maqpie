@@ -54,6 +54,9 @@ type PatchMsg =
       type: "snapshot";
       columns: string[];
       data: unknown[];
+      truncated?: boolean;
+      row_count?: number | null;
+      sent_rows?: number | null;
       updated_at?: string;
     }
   | {
@@ -63,6 +66,9 @@ type PatchMsg =
       type: "append";
       columns: string[];
       rows: unknown[];
+      truncated?: boolean;
+      row_count?: number | null;
+      sent_rows?: number | null;
       updated_at?: string;
     }
   | { rid: number; name?: string; dataset_id?: string; type: "reset" }
@@ -76,6 +82,8 @@ type DimensionConfig = {
   threshold: string;
 };
 const DIMENSION_LABEL_MAX_CHARS = 12;
+const LIVE_STREAM_MAX_ROWS = 20000;
+const LIVE_DATA_LOAD_LIMIT = String(LIVE_STREAM_MAX_ROWS);
 
 type DataViewerPersistedState = {
   selected?: string;
@@ -224,6 +232,11 @@ function truncateLabel(value: string, maxLength: number): string {
   if (value.length <= maxLength) return value;
   if (maxLength <= 3) return value.slice(0, maxLength);
   return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function limitLiveRows<T>(rows: T[]) {
+  if (rows.length <= LIVE_STREAM_MAX_ROWS) return rows;
+  return rows.slice(-LIVE_STREAM_MAX_ROWS);
 }
 
 function firstIncluded(candidates: string[], options: string[]) {
@@ -413,7 +426,7 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
 
         if (archiveMode && archiveId) {
           const a = await api.getArchive(archiveId);
-          const d: any = await api.getArchivedDatasetData(archiveId, selected, { format: "json" });
+          const d: any = await api.getArchivedDatasetData(archiveId, selected, { format: "json", limit_rows: LIVE_DATA_LOAD_LIMIT });
           if (!mounted) return;
           const nextMeta = {
             rid: a.rid,
@@ -433,7 +446,7 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
           setQuerySummary("");
         } else {
           const m: DatasetMeta = await api.getDatasetMeta(rid, selected);
-          const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+          const d: any = await api.getDatasetData(rid, selected, { format: "json", limit_rows: LIVE_DATA_LOAD_LIMIT });
           if (!mounted) return;
           const nextColumns = Array.isArray(d?.columns) ? d.columns : [];
           const nextData = d?.data ?? [];
@@ -565,7 +578,7 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
 
       if (msg.type === "snapshot") {
         const nextColumns = Array.isArray(msg.columns) ? msg.columns : [];
-        const nextData = Array.isArray(msg.data) ? msg.data : [];
+        const nextData = limitLiveRows(Array.isArray(msg.data) ? msg.data : []);
         setColumns(nextColumns);
         setData(nextData);
         if (!queryActive) {
@@ -584,10 +597,10 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
         }
         const nextRows = Array.isArray(msg.rows) ? msg.rows : [];
         setData((prev) => {
-          return prev.concat(nextRows);
+          return limitLiveRows(prev.concat(nextRows));
         });
         if (!queryActive) {
-          setBaseData((prev) => prev.concat(nextRows));
+          setBaseData((prev) => limitLiveRows(prev.concat(nextRows)));
         }
       }
     };
@@ -916,7 +929,7 @@ export default function DataViewerView({ rid, datasetName, archiveId, tabId = ""
                 if (!selected) return;
                 try {
                   setLoading(true);
-                  const d: any = await api.getDatasetData(rid, selected, { format: "json" });
+                  const d: any = await api.getDatasetData(rid, selected, { format: "json", limit_rows: LIVE_DATA_LOAD_LIMIT });
                   const nextColumns = Array.isArray(d?.columns) ? d.columns : [];
                   const nextData = d?.data ?? [];
                   setColumns(nextColumns);

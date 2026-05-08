@@ -363,7 +363,7 @@ export const api = {
     }
     return resp as DatasetMetaResp;
   },
-  getDatasetData: (rid: number, dataset_name: string, opts?: { format?: string; slice?: string }) => {
+  getDatasetData: (rid: number, dataset_name: string, opts?: { format?: string; slice?: string; limit_rows?: string }) => {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/runs/${rid}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },
@@ -400,7 +400,7 @@ export const api = {
     request<ArchiveDetailResp>(`/archives/${archive_id}/`, { method: "PATCH", body: JSON.stringify(body) }),
   deleteArchive: (archive_id: number) =>
     request<void>(`/archives/${archive_id}/`, { method: "DELETE" }),
-  getArchivedDatasetData: (archive_id: number, dataset_name: string, opts?: { format?: string; slice?: string }) => {
+  getArchivedDatasetData: (archive_id: number, dataset_name: string, opts?: { format?: string; slice?: string; limit_rows?: string }) => {
     const qs = opts ? `?${new URLSearchParams(opts as Record<string, string>).toString()}` : "";
     return request<DatasetDataResp>(`/archives/${archive_id}/datasets/${encodeURIComponent(dataset_name)}/data/${qs}`);
   },

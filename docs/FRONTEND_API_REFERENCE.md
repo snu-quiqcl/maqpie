@@ -970,6 +970,7 @@ Query parameters used by the frontend:
 
 - `format`: optional, usually `"json"`
 - `slice`: optional
+- `limit_rows`: optional positive integer; automatic viewer loads use this to request a bounded tail of large datasets
 
 Expected response:
 
@@ -981,7 +982,10 @@ Expected response:
   "data": [
     [0, 0, 1, 2, 100],
     [0, 1, 2, 3, 100]
-  ]
+  ],
+  "truncated": false,
+  "row_count": 2,
+  "sent_rows": 2
 }
 ```
 
@@ -992,6 +996,8 @@ Expected response:
 - object-like structures from older endpoints
 
 The current frontend expects array-based datasets most often.
+When `limit_rows` is supplied and the dataset is larger than that limit, the
+backend returns the most recent rows and sets `truncated: true`.
 
 ### `GET /runs/<rid>/datasets/<dataset_name>/download/`
 
@@ -1264,6 +1270,7 @@ Query parameters:
 
 - `format`: optional
 - `slice`: optional
+- `limit_rows`: optional positive integer
 
 Expected response:
 
@@ -1365,6 +1372,8 @@ Client message:
 ```
 
 Frontend expects the websocket stream to match the same row-table model as the HTTP dataset endpoint.
+Large snapshot and append messages may be bounded by the backend. When bounded,
+the message includes `truncated`, `row_count`, and `sent_rows`.
 
 Initial snapshot:
 
@@ -1379,6 +1388,9 @@ Initial snapshot:
     [0, 0, 1, 2, 100],
     [1, 1, 2, 3, 100]
   ],
+  "truncated": false,
+  "row_count": 2,
+  "sent_rows": 2,
   "updated_at": "2026-03-17T10:00:00Z"
 }
 ```
@@ -1395,6 +1407,9 @@ Append message:
   "rows": [
     [2, 2, 3, 4, 100]
   ],
+  "truncated": false,
+  "row_count": 1,
+  "sent_rows": 1,
   "updated_at": "2026-03-17T10:00:00Z"
 }
 ```
